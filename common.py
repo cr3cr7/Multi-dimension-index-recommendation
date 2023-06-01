@@ -246,7 +246,6 @@ class block():
 
     def _load(self, table):
         df = table.loc[table["id"] == self.id]
-        #df = table.iloc[self.id*self.size: (self.id+1)*self.size, :]
         return df
 
     def _is_scan(self, qcols, qranges):
