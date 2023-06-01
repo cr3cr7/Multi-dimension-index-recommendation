@@ -28,8 +28,10 @@ if __name__ == "__main__":
     print(qcols, qops, qranges)
     #print(qcols, qranges)
 
-
+    ### Genenate block id
     size = 20
+    table['id'] = np.arange(table.shape[0]) // size
+
     blocks = math.ceil(table.shape[0] / size)
     for id in range(blocks): 
         Blocks = common.block(table, 20, qcols, id)

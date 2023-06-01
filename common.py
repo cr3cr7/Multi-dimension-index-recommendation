@@ -245,6 +245,7 @@ class block():
             self.cols_max[i] = self.data[qcols[i]].max()
 
     def _load(self, table):
+        '''sort by id'''
         df = table.iloc[self.id*self.size: (self.id+1)*self.size, :]
         return df
 
