@@ -5,6 +5,23 @@ import numpy as np
 import generateQuery
 import common
 
+
+# Dataset Index后的数据 -> [Indexed Dataset]
+# Trainning Query Generation -> [Training set], [统计一下每个查询扫描block数 Natural Order]
+
+
+
+# Random Block Generation (Block Size = 20) -> [Indexed Dataset]
+
+
+
+# Block Selection Number (Query) -> [Block Scan Number]
+
+
+
+# Sample (Query) -> [Sampled Data according to Query (Indexed Dataset)]（分桶，保持原始数据distinct值不变）
+
+
 if __name__ == "__main__":
     rng = np.random.RandomState()
 
