@@ -2,7 +2,6 @@ import math
 
 import datasets
 import numpy as np
-import pandas as pd
 import generateQuery
 import common
 
@@ -20,7 +19,7 @@ if __name__ == "__main__":
 
     table = datasets.LoadDmv('dmv-tiny-sort.csv')
     table = table.data
-
+    print(table.columns)
     qcols, qops, qranges = generateQuery.SampleTupleThenRandom(cols, 1, rng, table)
     qcols = ['Color']
     qops = ['<=']
@@ -30,10 +29,12 @@ if __name__ == "__main__":
 
 
     size = 20
-    blocks = math.ceil(table.shape[0] / size)
-    for id in range(blocks): 
-        Blocks = common.block(table, 20, qcols, id)
-        df = Blocks._get_data()
+    table["id"] = np.arange(table.shape[0]) // size
+
+    blocks_num = math.ceil(table.shape[0] / size)
+    for id in range(blocks_num): 
+        Block = common.block(table, 20, qcols, id)
+        df = Block._get_data()
         print(df)
-        isScan = Blocks._is_scan(qcols, qranges)
+        isScan = Block._is_scan(qcols, qranges)
         print(isScan)
