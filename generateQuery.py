@@ -9,7 +9,6 @@ def SampleTupleThenRandom(all_cols,
                           return_col_idx=False):
     s = data.iloc[rng.randint(0, data.shape[0])]
     vals = s.values
-
     
     # Giant hack for DMV.
     #vals[6] = vals[6].to_datetime64()
@@ -36,8 +35,8 @@ def SampleTupleThenRandom(all_cols,
                 ranges[i][1] = vals[i]
                 ranges[i][0] = data[all_cols[i]].min()
         if return_col_idx:
-            return np.arange(len(all_cols)), ops, ranges
-        return all_cols, ops, ranges
+            return np.arange(len(all_cols)), ops, vals, ranges
+        return all_cols, ops, vals, ranges
 
 
     vals = vals[idxs]
@@ -51,6 +50,6 @@ def SampleTupleThenRandom(all_cols,
             ranges[i][1] = vals[i]
             ranges[i][0] = data[cols[i]].min()
     if return_col_idx:
-        return idxs, ops, ranges
+        return idxs, ops, vals, ranges
 
-    return cols, ops, ranges
+    return cols, ops, vals, ranges

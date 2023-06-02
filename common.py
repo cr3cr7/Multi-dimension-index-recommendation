@@ -101,7 +101,7 @@ class Column(object):
 class Table(object):
     """A collection of Columns."""
 
-    def __init__(self, name, columns, pg_name=None):
+    def __init__(self, name, columns, columnNames, pg_name=None):
         """Creates a Table.
 
         Args:
@@ -112,6 +112,7 @@ class Table(object):
         self.name = name
         self.cardinality = self._validate_cardinality(columns)
         self.columns = columns
+        self.columnNmaes = columnNames
 
         self.val_to_bin_funcs = [c.ValToBin for c in columns]
         self.name_to_index = {c.Name(): i for i, c in enumerate(self.columns)}
@@ -138,6 +139,9 @@ class Table(object):
     def Columns(self):
         """Return the list of Columns under this table."""
         return self.columns
+
+    def ColumnNames(self):
+        return self.columnNmaes
 
     def ColumnIndex(self, name):
         """Returns index of column with the specified name."""
@@ -172,6 +176,7 @@ class CsvTable(Table):
         """
         self.name = name
         self.pg_name = pg_name
+        self.columnNmaes = cols
 
         if isinstance(filename_or_df, str):
             self.data = self._load(filename_or_df, cols, **kwargs)
@@ -181,7 +186,7 @@ class CsvTable(Table):
 
         self.columns = self._build_columns(self.data, cols, type_casts, pg_cols)
 
-        super(CsvTable, self).__init__(name, self.columns, pg_name)
+        super(CsvTable, self).__init__(name, self.columns, self.columnNmaes, pg_name)
 
     def _load(self, filename, cols, **kwargs):
         print('Loading csv...', end=' ')
@@ -233,30 +238,6 @@ class CsvTable(Table):
         print('done, took {:.1f}s'.format(time.time() - s))
         return columns
     
-class block():
-    def __init__(self, table, size, qcols, id) -> None:
-        self.size = size
-        self.id = id
-        self.data = self._load(table)
-        self.cols_min = [None] * len(qcols)
-        self.cols_max = [None] * len(qcols)
-        for i in range(len(qcols)):
-            self.cols_min[i] = self.data[qcols[i]].min()
-            self.cols_max[i] = self.data[qcols[i]].max()
-
-    def _load(self, table):
-        df = table.loc[table["id"] == self.id]
-        return df
-
-    def _is_scan(self, qcols, qranges):
-        for i in range(len(qcols)):
-            if self.cols_min[i] > qranges[i][1] or self.cols_max[i] < qranges[i][0]:
-                return False
-        return True
-
-    def _get_data(self):
-        return self.data
-
 
 class TableDataset(data.Dataset):
     """Wraps a Table and yields each row as a PyTorch Dataset element."""
@@ -264,7 +245,6 @@ class TableDataset(data.Dataset):
     def __init__(self, table):
         super(TableDataset, self).__init__()
         self.table = copy.deepcopy(table)
-
         print('Discretizing table...', end=' ')
         s = time.time()
         # [cardianlity, num cols].
@@ -272,6 +252,8 @@ class TableDataset(data.Dataset):
             [self.Discretize(c) for c in self.table.Columns()], axis=1)
         self.tuples = torch.as_tensor(
             self.tuples_np.astype(np.float32, copy=False))
+        self.tuples_df = pd.DataFrame(self.tuples_np)
+        self.tuples_df.columns = self.table.ColumnNames()
         print('done, took {:.1f}s'.format(time.time() - s))
 
     def Discretize(self, col):
@@ -293,6 +275,38 @@ class TableDataset(data.Dataset):
     def __getitem__(self, idx):
         return self.tuples[idx]
 
+    def _predicate_data(self, query):
+        predicate_data = self.table.data.loc[eval(query)]
+        selected_indices = predicate_data.index
+        return predicate_data, self.tuples_df.loc[selected_indices]
+
+# New Block Class
+class block(TableDataset):
+    def __init__(self, table, size, qcols, id):
+        super(block, self).__init__(table)
+        self.blocksize = size
+        self.id = id
+        self.data = self._load()
+        self.cols_min = [None] * len(qcols)
+        self.cols_max = [None] * len(qcols)
+        for i in range(len(qcols)):
+            self.cols_min[i] = self.data[qcols[i]].min()
+            self.cols_max[i] = self.data[qcols[i]].max()
+        
+    def _load(self):
+        df = self.table.data.loc[self.table.data["id"] == self.id]
+        return df
+
+    def _is_scan(self, qcols, qranges):
+        for i in range(len(qcols)):
+            if self.cols_min[i] > qranges[i][1] or self.cols_max[i] < qranges[i][0]:
+                return False
+        return True
+
+    def _get_data(self):
+        return self.data
+
+    
 
 def Discretize(col, data=None):
     """Transforms data values into integers using a Column's vocab.
