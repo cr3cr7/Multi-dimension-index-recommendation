@@ -40,7 +40,7 @@ def SampleTupleThenRandom(all_cols,
 
 
     vals = vals[idxs]
-    print("vals:", vals)
+    # print("vals:", vals)
     ranges = [[None, None] for i in range(num_filters)]
     for i in range(num_filters):
         if ops[i] == '>=':

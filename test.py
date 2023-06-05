@@ -88,7 +88,7 @@ if __name__ == "__main__":
     # Generate Query
     queries, scan_conds = QueryGeneration(1, train_data, cols)
     
-    print(scan_conds[0][0], scan_conds[0][1])
+    print("Scan Condition:", scan_conds[0][0], scan_conds[0][1])
     for i in range(len(queries)):
         # Get Predeicate Data
         predicate_data, Indexed_predicate_data = Sample(train_data, queries[i])
