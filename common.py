@@ -344,7 +344,8 @@ def Discretize(col, data=None):
         dvs = col.all_distinct_values
         bin_ids = pd.Categorical(data, categories=dvs).codes
         assert len(bin_ids) == len(data), (len(bin_ids), len(data))
-
+        #add 1 to everybody for padding, 0 is reserved for padding
+        bin_ids = bin_ids + 1
     bin_ids = bin_ids.astype(np.int32, copy=False)
     assert (bin_ids >= 0).all(), (col, data, bin_ids)
     return bin_ids

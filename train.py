@@ -6,7 +6,7 @@ import pytorch_lightning.callbacks as plc
 from pytorch_lightning.loggers import TensorBoardLogger, WandbLogger
 from model.summarization import SummaryTrainer
 from model import MInterface
-# from data import DInterface
+
 
 def load_callbacks():
     callbacks = []
@@ -21,7 +21,7 @@ def load_callbacks():
         monitor='val_loss',
         filename='best-{epoch:02d}-{val_acc:.3f}',
         save_top_k=1,
-        mode='max',
+        mode='min',
         save_last=True
     ))
 
@@ -44,20 +44,20 @@ def main(args):
 
     # # If you want to change the logger's saving folder
     logger = WandbLogger(save_dir=args.log_dir, project="HighDim")
-    args.callbacks = load_callbacks()
     args.logger = logger
+    args.callbacks = load_callbacks()
 
     trainer = Trainer.from_argparse_args(args, accelerator='gpu', gpus=1, log_every_n_steps=1)
-    # trainer = Trainer.from_argparse_args(args, accelerator='gpu', fast_dev_run=True)
+    # trainer = Trainer.from_argparse_args(args, accelerator='gpu', gpus=1, fast_dev_run=True)
     trainer.fit(model)
 
 if __name__ == '__main__':
     parser = ArgumentParser()
     # Basic Training Control
-    parser.add_argument('--batch_size', default=32, type=int)
+    parser.add_argument('--batch_size', default=512, type=int)
     parser.add_argument('--num_workers', default=0, type=int)
     parser.add_argument('--seed', default=1234, type=int)
-    parser.add_argument('--lr', default=1e-3, type=float)
+    parser.add_argument('--lr', default=2e-4, type=float)
 
     # LR Scheduler
     parser.add_argument('--lr_scheduler', choices=['step', 'cosine'], type=str)
@@ -101,7 +101,7 @@ if __name__ == '__main__':
                         help='Transformer: num blocks.')
     parser.add_argument('--dmodel',
                         type=int,
-                        default=4,
+                        default=2,
                         help='Transformer: d_model.')
     parser.add_argument('--dff', type=int, default=64, help='Transformer: d_ff.')
     parser.add_argument('--transformer-act',
@@ -125,7 +125,7 @@ if __name__ == '__main__':
     #     parser.add_argument_group(title="pl.Trainer args"))
 
     # Reset Some Default Trainer Arguments' Default Values
-    parser.set_defaults(max_epochs=100)
+    parser.set_defaults(max_epochs=1000)
 
     args = parser.parse_args() # type: ignore
 

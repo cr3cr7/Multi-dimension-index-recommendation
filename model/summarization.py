@@ -7,6 +7,7 @@ from data import datasets
 from util.Block import RandomBlockGeneration, BlockDataset
 from model.model_interface import ReportModel
 import torch.nn.functional as F
+from sklearn.metrics import f1_score, accuracy_score
 
 class FeedFoward(nn.Module):
     """ a simple linear layer followed by a non-linearity """
@@ -31,7 +32,8 @@ class SummarizationModel(nn.Module):
         self.input_bins = input_bins
         self.embeddings = nn.ModuleList()
         for i in range(nin):
-            self.embeddings.append(nn.Embedding(self.input_bins[i], d_model))
+            # +1 for padding
+            self.embeddings.append(nn.Embedding(self.input_bins[i] + 1, d_model)) 
         # better init
         self.apply(self._init_weights)
         
@@ -85,7 +87,6 @@ class Classifier(nn.Module):
 class SummaryTrainer(pl.LightningModule):
     def __init__(self, 
                  num_workers=8,
-                 batchsize=512, 
                  **kargs):
         super().__init__()
         self.save_hyperparameters()
@@ -119,8 +120,13 @@ class SummaryTrainer(pl.LightningModule):
         new_block, query_sample_data, result = batch
         scan = self(query_sample_data, new_block)
         loss = self.loss_function(scan, result)
-        # print('valid:', scan, result, loss)
-        self.log('val_loss', loss, on_step=True, on_epoch=True, prog_bar=True)
+        # Measure Accuracy
+        scan = scan > 0.5
+        acc_metric = accuracy_score(result.cpu(), scan.cpu())
+        f1 = f1_score(result.cpu(), scan.cpu())
+        TruePerc = result.sum() / len(result)
+    
+        self.log_dict({'val_loss': loss, "f1": f1, 'acc': acc_metric, 'TruePerc': TruePerc}, on_step=True, on_epoch=True, prog_bar=True)
         return loss
         
         
@@ -155,6 +161,7 @@ class SummaryTrainer(pl.LightningModule):
 
         self.load_model(table.columns)
         ReportModel(self.model)
+        ReportModel(self.classifier)
 
     def load_model(self, columns):
         self.model = SummarizationModel(d_model=self.hparams.dmodel, 
