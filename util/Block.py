@@ -118,6 +118,7 @@ class BlockDataset(data.Dataset):
     def RandomBlockGeneration(self):
         arr = np.arange(self.table.data.shape[0]) // self.block_size
         random.shuffle(arr)
+        # new tuple = (card, cols + 1)
         new_tuple = torch.cat([torch.as_tensor(arr.reshape(-1, 1)), self.orig_tuples], dim=1)
         new_tuple_df = self.table.data.copy(deep=True)
         new_tuple_df["id"] = arr
@@ -143,7 +144,7 @@ class BlockDataset(data.Dataset):
         query_sample_data = self.Sample(self.table, Queries[0])
         
         # Define the desired size of the padded tensor
-        desired_size = (99, 11)
+        desired_size = (99, len(self.qcols))
 
         # Get the current size of the tensor
         current_size = query_sample_data.size()
@@ -154,6 +155,7 @@ class BlockDataset(data.Dataset):
         # Pad the tensor with 0s
         query_sample_data = F.pad(query_sample_data, (0, pad_amounts[1], 0, pad_amounts[0]), mode='constant', value=0)
         
+        # block(batch, card, cols)  query(batch, card, cols)  result(batch, 1)
         return new_block.to(torch.int), query_sample_data.to(torch.int), torch.tensor([result], dtype=torch.float32)
         
          

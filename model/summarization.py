@@ -92,11 +92,6 @@ class SummaryTrainer(pl.LightningModule):
         self.save_hyperparameters()
         self.num_workers = num_workers
         self.lr = kargs['lr']
-        self.cols = [
-            'Record Type', 'Registration Class', 'State', 'County', 'Body Type',
-            'Fuel Type', 'Reg Valid Date', 'Color', 'Scofflaw Indicator',
-            'Suspension Indicator', 'Revocation Indicator'
-            ]
         self.configure_loss()
         
     def forward(self, query, block):
@@ -151,6 +146,7 @@ class SummaryTrainer(pl.LightningModule):
         print(table.data.info())
         # self.data_module = TableDataset(table)
         # Assign train/val datasets for use in dataloaders
+        self.cols = table.ColumnNames()
         if stage == 'fit' or stage is None:
             self.trainset = BlockDataset(table, self.hparams.block_size, self.cols)
             self.valset = BlockDataset(table, self.hparams.block_size, self.cols)

@@ -112,7 +112,7 @@ class Table(object):
         self.name = name
         self.cardinality = self._validate_cardinality(columns)
         self.columns = columns
-        self.columnNmaes = columnNames
+        self.columnNames = columnNames
 
         self.val_to_bin_funcs = [c.ValToBin for c in columns]
         self.name_to_index = {c.Name(): i for i, c in enumerate(self.columns)}
@@ -141,7 +141,7 @@ class Table(object):
         return self.columns
 
     def ColumnNames(self):
-        return self.columnNmaes
+        return self.columnNames
 
     def ColumnIndex(self, name):
         """Returns index of column with the specified name."""
