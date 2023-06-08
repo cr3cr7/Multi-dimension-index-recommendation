@@ -3,7 +3,8 @@ from torch import nn
 import pytorch_lightning as pl
 from common import TableDataset
 from torch.utils.data import DataLoader
-from data import datasets
+#from data import datasets
+import datasets
 from util.Block import RandomBlockGeneration, BlockDataset
 from model.model_interface import ReportModel
 import torch.nn.functional as F
@@ -26,7 +27,7 @@ class FeedFoward(nn.Module):
     
     
 class SummarizationModel(nn.Module):
-    def __init__(self, d_model, nin, input_bins):
+    def __init__(self, d_model, nin, input_bins, pad_size):
         super().__init__()
         self.nin = nin
         self.input_bins = input_bins
@@ -38,8 +39,8 @@ class SummarizationModel(nn.Module):
         self.apply(self._init_weights)
         
         self.summarization = nn.Sequential(
-            FeedFoward(99 * d_model * nin),
-            nn.Linear(99 * d_model * nin, d_model),
+            FeedFoward(pad_size * d_model * nin),
+            nn.Linear(pad_size * d_model * nin, d_model),
             nn.ReLU()
         )
 
@@ -93,10 +94,10 @@ class SummaryTrainer(pl.LightningModule):
         self.num_workers = num_workers
         self.lr = kargs['lr']
         self.configure_loss()
-        
+
     def forward(self, query, block):
-        query_embed = self.model(query)
-        block_embed = self.model(block)
+        query_embed = self.q_model(query)
+        block_embed = self.b_model(block)
         
         scan = self.classifier(block_embed, query_embed)
         return scan
@@ -139,7 +140,9 @@ class SummaryTrainer(pl.LightningModule):
         if dataset == 'tpch':
             table = datasets.LoadTPCH()
         elif dataset == 'dmv-tiny':
-            table = datasets.LoadDmv('dmv-tiny-sort.csv')
+            table = datasets.LoadDmv('dmv-tiny.csv')
+        elif dataset == 'lineitem':
+            table = datasets.LoadDmv('lineitem.csv')
         else:
             raise ValueError(
                 f'Invalid Dataset File Name or Invalid Class Name data.{dataset}')
@@ -156,13 +159,19 @@ class SummaryTrainer(pl.LightningModule):
             self.testset = BlockDataset(table, self.hparams.block_size, self.cols)
 
         self.load_model(table.columns)
-        ReportModel(self.model)
+        ReportModel(self.q_model)
+        ReportModel(self.b_model)
         ReportModel(self.classifier)
 
     def load_model(self, columns):
-        self.model = SummarizationModel(d_model=self.hparams.dmodel, 
+        self.q_model = SummarizationModel(d_model=self.hparams.dmodel, 
                                         nin=len(columns), 
-                                        input_bins=[c.DistributionSize() for c in columns])
+                                        input_bins=[c.DistributionSize() for c in columns],
+                                        pad_size=50)
+        self.b_model = SummarizationModel(d_model=self.hparams.dmodel, 
+                                        nin=len(columns), 
+                                        input_bins=[c.DistributionSize() for c in columns],
+                                        pad_size=20)
         self.classifier = Classifier(self.hparams.dmodel)
         
 

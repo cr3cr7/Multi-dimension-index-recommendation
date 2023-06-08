@@ -18,7 +18,8 @@ import importlib
 from model import made, transformer
 from torch.nn import functional as F
 import torch.optim.lr_scheduler as lrs
-from data import datasets
+#from data import datasets
+import datasets
 from torch.utils.data import DataLoader
 from torch.utils.data.sampler import WeightedRandomSampler
 from common import TableDataset

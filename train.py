@@ -74,7 +74,7 @@ if __name__ == '__main__':
 
     # Training Info
     parser.add_argument('--block_size', type=int, default='20', help='Block Size of a FS block.')
-    parser.add_argument('--dataset', type=str, default='dmv-tiny', help='Dataset.')
+    parser.add_argument('--dataset', type=str, default='lineitem', help='Dataset.')
     parser.add_argument('--data_dir', default='ref/data', type=str)
     parser.add_argument('--model_name', default='transformer', type=str)
     parser.add_argument('--loss', default='bce', type=str)

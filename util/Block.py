@@ -21,7 +21,8 @@ def QueryGeneration(nums, train_data: pd.DataFrame, cols):
 
     for i in range(nums):
         rng = np.random.RandomState()
-        query_cols_nums = random.randint(1, len(cols))
+        #query_cols_nums = random.randint(1, len(cols))
+        query_cols_nums = train_data.shape[1]
         qcols, qops, qvals, qranges = generateQuery.SampleTupleThenRandom(cols, query_cols_nums, rng, train_data)
         conditions = []
         for i in range(len(qcols)):
@@ -71,10 +72,10 @@ class BlockDataset(data.Dataset):
     
     def __init__(self, table: common.CsvTable, 
                        block_size: int, 
-                       qcols: list):
+                       cols: list):
         self.table = copy.deepcopy(table)
         self.block_size = block_size
-        self.qcols = qcols
+        self.cols = cols
         
         
         s = time.time()
@@ -104,16 +105,16 @@ class BlockDataset(data.Dataset):
     def zero_except_id(self, tensor, df, id):
         # tensor: PyTorch tensor
         # id: value to match in first column
-        tensor[tensor[:, 0] != id] = 0
-        df = df[df["id"] == id]
-        self.collect_cols_min_max(df)
+        #tensor[tensor[:, 0] != id] = 0
+        tensor = tensor[tensor[:, 0] == id] 
+        indexed_df = df[df["id"] == id]
+        self.collect_cols_min_max(indexed_df)
         return tensor[:, 1:]
 
-    def collect_cols_min_max(self, tuples_df):
-        for i in self.qcols:
-            self.cols_min[i] = tuples_df[i].min()
-            self.cols_max[i] = tuples_df[i].max()
-    
+    def collect_cols_min_max(self, df):
+        for i in self.cols:
+            self.cols_min[i] = df[i].min()
+            self.cols_max[i] = df[i].max()
     
     def RandomBlockGeneration(self):
         arr = np.arange(self.table.data.shape[0]) // self.block_size
@@ -132,11 +133,14 @@ class BlockDataset(data.Dataset):
             
         # 1. Get the block
         new_block, new_tuple_df = self.RandomBlockGeneration()
-        new_idx = random.randint(0, (new_block.shape[0] // self.block_size) - 1) 
+        new_idx = random.randint(0, math.ceil(self.table.data.shape[0] / self.block_size) - 1) 
+        #print(new_tuple_df[new_tuple_df['id'] == new_idx])
         new_block = self.zero_except_id(new_block, new_tuple_df, new_idx)
-        
+
         # 2. Get the query
-        Queries, scan_conds = QueryGeneration(1, self.table.data, self.qcols)
+        #print(self.table.data)
+        Queries, scan_conds = QueryGeneration(1, self.table.data, self.cols)
+        #print("qcols: ", scan_conds[0][0], "qrange: ", scan_conds[0][1])
     
         result = self._is_scan(scan_conds[0][0], scan_conds[0][1])
        
@@ -144,16 +148,30 @@ class BlockDataset(data.Dataset):
         query_sample_data = self.Sample(self.table, Queries[0])
         
         # Define the desired size of the padded tensor
-        desired_size = (99, len(self.qcols))
+        desired_size = (50, len(self.cols))
 
         # Get the current size of the tensor
         current_size = query_sample_data.size()
-    
-        # Compute the amount of padding needed for each dimension
-        pad_amounts = [desired_size[i] - current_size[i] for i in range(len(desired_size))]
+        """ block_current_size = new_block.size()
 
-        # Pad the tensor with 0s
-        query_sample_data = F.pad(query_sample_data, (0, pad_amounts[1], 0, pad_amounts[0]), mode='constant', value=0)
+        if block_current_size[0] < desired_size[0]:
+            # Compute the amount of padding needed for each dimension
+            pad_amounts = [desired_size[i] - block_current_size[i] for i in range(len(desired_size))]
+
+            # Pad the tensor with 0s
+            new_block = F.pad(new_block, (0, pad_amounts[1], 0, pad_amounts[0]), mode='constant', value=0) """
+    
+        if current_size[0] < desired_size[0]:
+            # Compute the amount of padding needed for each dimension
+            pad_amounts = [desired_size[i] - current_size[i] for i in range(len(desired_size))]
+
+            # Pad the tensor with 0s
+            query_sample_data = F.pad(query_sample_data, (0, pad_amounts[1], 0, pad_amounts[0]), mode='constant', value=0)
+        elif current_size[0] > desired_size[0]:
+            start_idx = (current_size[0] - desired_size[0]) // 2
+            end_idx = start_idx + desired_size[0]
+            
+            query_sample_data = query_sample_data.narrow(0, start_idx, desired_size[0])
         
         # block(batch, card, cols)  query(batch, card, cols)  result(batch, 1)
         return new_block.to(torch.int), query_sample_data.to(torch.int), torch.tensor([result], dtype=torch.float32)
@@ -161,8 +179,10 @@ class BlockDataset(data.Dataset):
          
     def _is_scan(self, qcols, qranges):
         for idx, i in enumerate(qcols):
-            if self.cols_min[i] > qranges[idx][1] or self.cols_max[i] < qranges[idx][0]:
-                return False
+            if self.cols_min.get(i, False):
+                #print("qcol: ", i)
+                if self.cols_min[i] > qranges[idx][1] or self.cols_max[i] < qranges[idx][0]:
+                    return False
         return True
     
     def Sample(self, train_data, query):

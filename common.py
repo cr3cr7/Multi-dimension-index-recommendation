@@ -192,6 +192,8 @@ class CsvTable(Table):
         print('Loading csv...', end=' ')
         s = time.time()
         df = pd.read_csv(filename, usecols=cols, **kwargs)
+        if df.shape[0] > 500:
+            df = df.sample(n=500).reset_index()
         if cols is not None:
             df = df[cols]
         print('done, took {:.1f}s'.format(time.time() - s))
