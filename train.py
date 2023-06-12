@@ -6,6 +6,7 @@ import pytorch_lightning.callbacks as plc
 from pytorch_lightning.loggers import TensorBoardLogger, WandbLogger
 from model.summarization import SummaryTrainer
 from model import MInterface
+from model.ScanCoster import ScanCostTrainer
 
 
 def load_callbacks():
@@ -36,14 +37,16 @@ def main(args):
 
     if args.load_path is None:
         # model = MInterface(**vars(args))
-        model = SummaryTrainer(**vars(args))
+        # model = SummaryTrainer(**vars(args))
+        model = ScanCostTrainer(**vars(args))
     else:
         # model = MInterface(**vars(args))
-        model = SummaryTrainer(**vars(args))
-        args.ckpt_path = args.load_path
+        # model = SummaryTrainer(**vars(args))
+        model = ScanCostTrainer(**vars(args))
+        # args.ckpt_path = args.load_path
 
     # # If you want to change the logger's saving folder
-    logger = WandbLogger(save_dir=args.log_dir, project="HighDim")
+    logger = WandbLogger(save_dir=args.log_dir, project="debug")
     args.logger = logger
     args.callbacks = load_callbacks()
 
@@ -74,10 +77,10 @@ if __name__ == '__main__':
 
     # Training Info
     parser.add_argument('--block_size', type=int, default='20', help='Block Size of a FS block.')
-    parser.add_argument('--dataset', type=str, default='lineitem', help='Dataset.')
+    parser.add_argument('--dataset', type=str, default='dmv-tiny', help='Dataset.')
     parser.add_argument('--data_dir', default='ref/data', type=str)
     parser.add_argument('--model_name', default='transformer', type=str)
-    parser.add_argument('--loss', default='bce', type=str)
+    parser.add_argument('--loss', default='mse', type=str)
     parser.add_argument('--weight_decay', default=1e-5, type=float)
     parser.add_argument('--no_augment', action='store_true')
     parser.add_argument('--log_dir', default='lightning_logs', type=str)

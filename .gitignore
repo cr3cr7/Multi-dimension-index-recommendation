@@ -6,3 +6,5 @@ datasets/lineitem.csv
 datasets/Lineitem2.csv
 lightning_logs/*
 data/*
+model/LearnedSortOrder.py
+TestGeneration.py
