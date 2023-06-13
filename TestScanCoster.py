@@ -31,20 +31,18 @@ class ScanCostTrainer(pl.LightningModule):
 
     def forward(self, table, query):
         # 大小应为 batch_size ，此处手动设置
-        total_scan = 0.0
-        
-        em_query = self.embedding_model(query)
-        query_embed = self.query_model(em_query)
-
+        # total_scan = torch.zeros(64, requires_grad=True).reshape(64, 1)
+        total_scan = 0
+        #total_scan = total_scan.to(device=torch.device('cuda' if torch.cuda.is_available() else 'cpu'))
+        query_embed = self.query_model(query)
         data2id = self.ranking_model(table)
-        table = self.embedding_model(table.to(torch.int))
-
+        table = table.to(torch.int)
         for id in range(self.block_nums):
             block_id, indices = self.filter_model(data2id, id)
             
-            block = table * block_id.unsqueeze(-1)
+            block = table * block_id
 
-            selected_block = torch.gather(block, 1, indices.unsqueeze(-1).expand(-1, -1, block.size(2)).unsqueeze(-1).expand(-1, -1, -1, block.size(-1)))
+            selected_block = torch.gather(block, 1, indices.unsqueeze(-1).expand(-1, -1, block.size(-1)))
             
 
             block_embed = self.block_model(selected_block)
@@ -70,6 +68,11 @@ class ScanCostTrainer(pl.LightningModule):
         target = (table_size / query_size).ceil() """
         loss = self.loss_function(scan, target)
 
+        for name, param in self.ranking_model_parameters():
+            if param.grad is not None:
+                print(f'Parameter: {name}, Gradient: {param.grad}')
+            else:
+                print(f'Parameter: {name}, Gradient: None')
         #self.log('loss', loss, on_step=True, on_epoch=True, prog_bar=True)
         self.log_dict({'val_loss': loss}, on_step=True, on_epoch=True, prog_bar=True)
         return loss
@@ -113,7 +116,6 @@ class ScanCostTrainer(pl.LightningModule):
         ReportModel(self.query_model)
         ReportModel(self.block_model)
         ReportModel(self.classifier)
-        ReportModel(self.embedding_model)
 
 
     def load_model(self, columns):
@@ -123,15 +125,13 @@ class ScanCostTrainer(pl.LightningModule):
 
         self.query_model = SummarizationModel(d_model=self.hparams.dmodel, 
                                         nin=len(columns), 
+                                        input_bins=[c.DistributionSize() for c in columns],
                                         pad_size=50)
         self.block_model = SummarizationModel(d_model=self.hparams.dmodel, 
-                                        nin=len(columns),
+                                        nin=len(columns), 
+                                        input_bins=[c.DistributionSize() for c in columns],
                                         pad_size=self.hparams.block_size)
         self.classifier = Classifier(self.hparams.dmodel)
-
-        self.embedding_model = Embedding(d_model=self.hparams.dmodel, 
-                                        nin=len(columns), 
-                                        input_bins=[c.DistributionSize() for c in columns])
 
     def train_dataloader(self):
         return DataLoader(self.trainset, batch_size=self.hparams.batch_size, num_workers=self.num_workers, shuffle=True)
@@ -192,39 +192,65 @@ if __name__ == '__main__':
 
     query_model = SummarizationModel(d_model=dmodel, 
                                 nin=len(input_bins), 
-                                input_bins=input_bins,
                                 pad_size=total_card).to(device='cuda')
     block_model = SummarizationModel(d_model=dmodel, 
                                 nin=len(input_bins), 
-                                input_bins=input_bins,
                                 pad_size=block_size).to(device='cuda')
     classifier = Classifier(dmodel).to(device='cuda')
+    
+    embedding_model = Embedding(d_model=dmodel, 
+                                nin=len(input_bins), 
+                                input_bins=input_bins).to(device='cuda')
     
     query = torch.randint(low=0, high=2, size=(64, total_card, 3)).to(device='cuda')
     table = torch.randint(low=0, high=2, size=(64, total_card, 3)).to(device='cuda')
     
     total_scan = 0.0
-    query_embed = query_model(query)
-    data2id = ranking_model(table.to(torch.long))
-    table = table.to(torch.int)
+    
+    em_query = embedding_model(query)
+    
+    query_embed = query_model(em_query)
+    
+    """ query_embed = query_embed.sum()
+    query_embed.backward()
+    print(next(query_model.parameters()).grad)
+    print(next(embedding_model.parameters()).grad)
+    print(em_query.grad) """
+
+    data2id = ranking_model(table.to(torch.float))
+    
+    table = embedding_model(table)
+    
+    """ block_id, indices = filter_model(data2id, 1)
+    block_id.retain_grad()
+    
+    block = block_id.unsqueeze(-1) * table
+    block.retain_grad()
+    
+
+    block_embed = block_model(block) """
+    
+    
     for id in range(block_nums):
-        indices = filter_model(data2id, id)
-        
-        block = torch.gather(table, 1, indices.unsqueeze(-1).expand(-1, -1, table.size(-1)))
-        
-        block_embed = block_model(block)
+        block_id, indices = filter_model(data2id, id)
+
+        block = table * block_id.unsqueeze(-1)
+
+        selected_block = torch.gather(block, 1, indices.unsqueeze(-1).expand(-1, -1, block.size(2)).unsqueeze(-1).expand(-1, -1, -1, block.size(-1)))
+            
+
+        block_embed = block_model(selected_block)
         scan = classifier(block_embed, query_embed)
         # scan = (scan > 0.5).float()
         total_scan = scan + total_scan
-
+        
     total_scan = total_scan.sum()
-    
     print(next(query_model.parameters()).grad)
     print(next(ranking_model.parameters()).grad)
-    
+    print(next(classifier.parameters()).grad)
     total_scan.backward()
     
     print(next(query_model.parameters()).grad)
+    print(next(block_model.parameters()).grad)
     print(next(ranking_model.parameters()).grad)
-    
     

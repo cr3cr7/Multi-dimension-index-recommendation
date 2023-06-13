@@ -37,7 +37,7 @@ class RankingModel(nn.Module):
             p2s = []
             for row in one_batch:
                 mask = self.update_mask(count)
-                logits = self.MLP(row) 
+                logits = self.MLP(row.to(torch.float)) 
                 # mask invalid bins
                 logits = logits + (1 - mask) * -1e9
                 # Sample soft categorical using reparametrization trick:
@@ -63,16 +63,26 @@ class FilterModel(nn.Module):
         super().__init__()
 
     def forward(self, one_hot, id):
+        block_id = []
         indices = []
         for one_batch in one_hot:
-            table = one_batch
-            table_cp = table.clone()
+            table_cp = one_batch.clone().detach()
             table_cp[:,id] = 0
-            selected_block = table - table_cp
-            selected_block = torch.sum(selected_block, dim=1)
-            selected_block = torch.unsqueeze(selected_block, dim=1)
-            indices.append(selected_block)
-        return torch.stack(indices)
+            table_diff = one_batch - table_cp
+            
+            selected_block = torch.sum(table_diff, dim=1, keepdim=True)
+            
+            
+            rows = one_batch[:, id].nonzero().reshape(-1)
+            
+            block_id.append(selected_block)
+            indices.append(rows)
+        return torch.stack(block_id), torch.stack(indices)
+        """ table = one_hot.clone().detach()
+        table[:,:,id] = 0
+        table_diff = one_hot - table
+        selected_block = torch.sum(table_diff, dim=2, keepdim=True)
+        return selected_block """
 
 class GenerationTrainer(pl.LightningModule):
     def __init__(self, num_workers=8, **kargs):

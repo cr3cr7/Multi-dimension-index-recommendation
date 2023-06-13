@@ -1,7 +1,7 @@
 import torch
 from torch import nn
 import pytorch_lightning as pl
-from common import TableDataset
+#from common import TableDataset
 from torch.utils.data import DataLoader
 #from data import datasets
 import datasets
@@ -9,6 +9,23 @@ from util.Block import RandomBlockGeneration, BlockDataset
 from model.model_interface import ReportModel
 import torch.nn.functional as F
 from sklearn.metrics import f1_score, accuracy_score
+
+class Embedding(nn.Module):
+    def __init__(self, d_model, nin, input_bins):
+        super().__init__()
+        self.nin = nin
+        self.input_bins = input_bins
+        self.embeddings = nn.ModuleList()
+        for i in range(nin):
+            # +1 for padding
+            self.embeddings.append(nn.Embedding(self.input_bins[i] + 1, d_model)) 
+    
+    def forward(self, x):
+        y_embed = []
+        for nat_idx in range(self.nin):
+            y_embed.append(self.embeddings[nat_idx](x[:, :, nat_idx]))
+        inp = torch.stack(y_embed, 2)
+        return inp
 
 class FeedFoward(nn.Module):
     """ a simple linear layer followed by a non-linearity """
@@ -27,14 +44,8 @@ class FeedFoward(nn.Module):
     
     
 class SummarizationModel(nn.Module):
-    def __init__(self, d_model, nin, input_bins, pad_size):
-        super().__init__()
-        self.nin = nin
-        self.input_bins = input_bins
-        self.embeddings = nn.ModuleList()
-        for i in range(nin):
-            # +1 for padding
-            self.embeddings.append(nn.Embedding(self.input_bins[i] + 1, d_model)) 
+    def __init__(self, d_model, nin, pad_size):
+        super().__init__() 
         # better init
         self.apply(self._init_weights)
         
@@ -55,12 +66,13 @@ class SummarizationModel(nn.Module):
     def forward(self, x):
         # x: [batch_size, nin]
         # inp: [batch_size, nin, d_model]
-        y_embed = []
+        """ y_embed = []
         for nat_idx in range(self.nin):
             y_embed.append(self.embeddings[nat_idx](x[:, :, nat_idx]))
-        inp = torch.stack(y_embed, 2)
+        inp = torch.stack(y_embed, 2) """
         # inp,  torch.Size([4, 99, 11, 32])
-        inp = inp.reshape(inp.shape[0], -1)
+        #inp = inp.reshape(inp.shape[0], -1)
+        inp = x.reshape(x.shape[0], -1)
         inp = self.summarization(inp)
         return inp
 
@@ -96,8 +108,12 @@ class SummaryTrainer(pl.LightningModule):
         self.configure_loss()
 
     def forward(self, query, block):
-        query_embed = self.q_model(query)
-        block_embed = self.b_model(block)
+        em_query = self.embedding_model(query)
+
+        query_embed = self.q_model(em_query)
+
+        em_block = self.embedding_model(block)
+        block_embed = self.b_model(em_block)
         
         scan = self.classifier(block_embed, query_embed)
         return scan
@@ -166,14 +182,15 @@ class SummaryTrainer(pl.LightningModule):
     def load_model(self, columns):
         self.q_model = SummarizationModel(d_model=self.hparams.dmodel, 
                                         nin=len(columns), 
-                                        input_bins=[c.DistributionSize() for c in columns],
                                         pad_size=50)
         self.b_model = SummarizationModel(d_model=self.hparams.dmodel, 
                                         nin=len(columns), 
-                                        input_bins=[c.DistributionSize() for c in columns],
                                         pad_size=20)
         self.classifier = Classifier(self.hparams.dmodel)
         
+        self.embedding_model = Embedding(d_model=self.hparams.dmodel, 
+                                        nin=len(columns), 
+                                        input_bins=[c.DistributionSize() for c in columns])
 
     def train_dataloader(self):
         return DataLoader(self.trainset, batch_size=self.hparams.batch_size, num_workers=self.num_workers, shuffle=True)

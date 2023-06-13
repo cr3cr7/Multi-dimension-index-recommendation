@@ -47,6 +47,7 @@ def main(args):
 
     # # If you want to change the logger's saving folder
     # logger = WandbLogger(save_dir=args.log_dir, project="debug")
+    logger = False
     # args.logger = logger
     args.callbacks = load_callbacks()
 
