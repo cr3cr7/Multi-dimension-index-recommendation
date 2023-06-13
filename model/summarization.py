@@ -105,12 +105,13 @@ class SummaryTrainer(pl.LightningModule):
         self.save_hyperparameters()
         self.num_workers = num_workers
         self.lr = kargs['lr']
+        self.rand = kargs['rand']
         self.configure_loss()
 
     def forward(self, query, block):
         em_query = self.embedding_model(query)
 
-        query_embed = self.q_model(em_query)
+        query_embed = self.model(em_query)
 
         em_block = self.embedding_model(block)
         block_embed = self.b_model(em_block)
@@ -123,8 +124,11 @@ class SummaryTrainer(pl.LightningModule):
         new_block, query_sample_data, result = batch
         scan = self(query_sample_data, new_block)
         loss = self.loss_function(scan, result)
-        # print("train", scan, result, loss)
-        self.log('loss', loss, on_step=True, on_epoch=True, prog_bar=True)
+  
+        scan = scan > 0.5
+        acc_metric = accuracy_score(result.cpu(), scan.cpu())
+        TruePerc = result.sum() / len(result)
+        self.log_dict({'loss': loss, 'train_acc': acc_metric, 'train_TruePerc': TruePerc}, on_step=True, on_epoch=True, prog_bar=True)
         return loss
         
         
@@ -138,7 +142,7 @@ class SummaryTrainer(pl.LightningModule):
         f1 = f1_score(result.cpu(), scan.cpu())
         TruePerc = result.sum() / len(result)
     
-        self.log_dict({'val_loss': loss, "f1": f1, 'acc': acc_metric, 'TruePerc': TruePerc}, on_step=True, on_epoch=True, prog_bar=True)
+        self.log_dict({'val_loss': loss, "f1": f1, 'val_acc': acc_metric, 'TruePerc': TruePerc}, on_step=True, on_epoch=True, prog_bar=True)
         return loss
         
         
@@ -158,7 +162,7 @@ class SummaryTrainer(pl.LightningModule):
         elif dataset == 'dmv-tiny':
             table = datasets.LoadDmv('dmv-tiny.csv')
         elif dataset == 'lineitem':
-            table = datasets.LoadDmv('lineitem.csv')
+            table = datasets.LoadLineitem('lineitem.csv')
         else:
             raise ValueError(
                 f'Invalid Dataset File Name or Invalid Class Name data.{dataset}')
@@ -167,25 +171,25 @@ class SummaryTrainer(pl.LightningModule):
         # Assign train/val datasets for use in dataloaders
         self.cols = table.ColumnNames()
         if stage == 'fit' or stage is None:
-            self.trainset = BlockDataset(table, self.hparams.block_size, self.cols)
-            self.valset = BlockDataset(table, self.hparams.block_size, self.cols)
+            self.trainset = BlockDataset(table, self.hparams.block_size, self.cols, rand=self.rand)
+            self.valset = BlockDataset(table, self.hparams.block_size, self.cols, rand=self.rand)
 
         # Assign test dataset for use in dataloader(s)
         if stage == 'test' or stage is None:
-            self.testset = BlockDataset(table, self.hparams.block_size, self.cols)
+            self.testset = BlockDataset(table, self.hparams.block_size, self.cols, rand=self.rand)
 
         self.load_model(table.columns)
-        ReportModel(self.q_model)
-        ReportModel(self.b_model)
+        ReportModel(self.model)
         ReportModel(self.classifier)
 
     def load_model(self, columns):
-        self.q_model = SummarizationModel(d_model=self.hparams.dmodel, 
+        self.model = SummarizationModel(d_model=self.hparams.dmodel, 
                                         nin=len(columns), 
                                         pad_size=50)
         self.b_model = SummarizationModel(d_model=self.hparams.dmodel, 
                                         nin=len(columns), 
                                         pad_size=20)
+    
         self.classifier = Classifier(self.hparams.dmodel)
         
         self.embedding_model = Embedding(d_model=self.hparams.dmodel, 

@@ -72,10 +72,12 @@ class BlockDataset(data.Dataset):
     
     def __init__(self, table: common.CsvTable, 
                        block_size: int, 
-                       cols: list):
+                       cols: list,
+                       rand: bool = False):
         self.table = copy.deepcopy(table)
         self.block_size = block_size
         self.cols = cols
+        self.rand = rand
         
         
         s = time.time()
@@ -90,6 +92,9 @@ class BlockDataset(data.Dataset):
         
         self.cols_min = {}
         self.cols_max = {}
+        
+        # Generate test Queries
+        self.testQuery, self.testScanConds =  QueryGeneration(1, self.table.data, self.cols)
         
     def Discretize(self, col):
         """Discretize values into its Column's bins.
@@ -124,6 +129,13 @@ class BlockDataset(data.Dataset):
         new_tuple_df = self.table.data.copy(deep=True)
         new_tuple_df["id"] = arr
         return new_tuple, new_tuple_df
+
+    def getQuery(self, rand: bool):
+        if rand:
+            Queries, scan_conds = QueryGeneration(1, self.table.data, self.cols)
+            return Queries, scan_conds
+        else:
+            return self.testQuery, self.testScanConds
     
     def __len__(self):
         return 64
@@ -139,7 +151,7 @@ class BlockDataset(data.Dataset):
 
         # 2. Get the query
         #print(self.table.data)
-        Queries, scan_conds = QueryGeneration(1, self.table.data, self.cols)
+        Queries, scan_conds = self.getQuery(rand=self.rand)
         #print("qcols: ", scan_conds[0][0], "qrange: ", scan_conds[0][1])
     
         result = self._is_scan(scan_conds[0][0], scan_conds[0][1])
@@ -148,18 +160,18 @@ class BlockDataset(data.Dataset):
         query_sample_data = self.Sample(self.table, Queries[0])
         
         # Define the desired size of the padded tensor
-        desired_size = (50, len(self.cols))
+        desired_size = (99, len(self.cols))
 
         # Get the current size of the tensor
         current_size = query_sample_data.size()
-        """ block_current_size = new_block.size()
+        block_current_size = new_block.size()
 
         if block_current_size[0] < desired_size[0]:
             # Compute the amount of padding needed for each dimension
             pad_amounts = [desired_size[i] - block_current_size[i] for i in range(len(desired_size))]
 
             # Pad the tensor with 0s
-            new_block = F.pad(new_block, (0, pad_amounts[1], 0, pad_amounts[0]), mode='constant', value=0) """
+            new_block = F.pad(new_block, (0, pad_amounts[1], 0, pad_amounts[0]), mode='constant', value=0)
     
         if current_size[0] < desired_size[0]:
             # Compute the amount of padding needed for each dimension
