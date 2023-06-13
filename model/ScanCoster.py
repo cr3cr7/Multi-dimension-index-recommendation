@@ -25,16 +25,19 @@ class ScanCostTrainer(pl.LightningModule):
 
     def forward(self, table, query):
         # 大小应为 batch_size ，此处手动设置
-        total_scan = torch.zeros(64, requires_grad=True).reshape(64, 1)
-        total_scan = total_scan.to(device=torch.device('cuda' if torch.cuda.is_available() else 'cpu'))
+        # total_scan = torch.zeros(64, requires_grad=True).reshape(64, 1)
+        total_scan = 0
+        #total_scan = total_scan.to(device=torch.device('cuda' if torch.cuda.is_available() else 'cpu'))
         query_embed = self.query_model(query)
         data2id = self.ranking_model(table)
         table = table.to(torch.int)
         for id in range(self.block_nums):
             indices = self.filter_model(data2id, id)
             
-            block = torch.gather(table, 1, indices.unsqueeze(-1).expand(-1, -1, table.size(-1)))
+            block = table * indices
+            #block = torch.gather(table, 1, indices.unsqueeze(-1).expand(-1, -1, table.size(-1)))
             
+
             block_embed = self.block_model(block)
             scan = self.classifier(block_embed, query_embed)
             scan = (scan > 0.5).float()
@@ -57,6 +60,12 @@ class ScanCostTrainer(pl.LightningModule):
         """ table_size = torch.tensor(table.size()[1], dtype=float)
         target = (table_size / query_size).ceil() """
         loss = self.loss_function(scan, target)
+
+        for name, param in self.ranking_model_parameters():
+            if param.grad is not None:
+                print(f'Parameter: {name}, Gradient: {param.grad}')
+            else:
+                print(f'Parameter: {name}, Gradient: None')
         #self.log('loss', loss, on_step=True, on_epoch=True, prog_bar=True)
         self.log_dict({'val_loss': loss}, on_step=True, on_epoch=True, prog_bar=True)
         return loss

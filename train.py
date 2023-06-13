@@ -46,12 +46,12 @@ def main(args):
         # args.ckpt_path = args.load_path
 
     # # If you want to change the logger's saving folder
-    logger = WandbLogger(save_dir=args.log_dir, project="debug")
-    args.logger = logger
+    # logger = WandbLogger(save_dir=args.log_dir, project="debug")
+    # args.logger = logger
     args.callbacks = load_callbacks()
 
-    trainer = Trainer.from_argparse_args(args, accelerator='gpu', gpus=1, log_every_n_steps=1)
-    # trainer = Trainer.from_argparse_args(args, accelerator='gpu', gpus=1, fast_dev_run=True)
+    # trainer = Trainer.from_argparse_args(args, accelerator='gpu', gpus=1, log_every_n_steps=1)
+    trainer = Trainer.from_argparse_args(args, accelerator='gpu', gpus=1, fast_dev_run=True)
     trainer.fit(model)
 
 if __name__ == '__main__':

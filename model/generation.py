@@ -69,7 +69,8 @@ class FilterModel(nn.Module):
             table_cp = table.clone()
             table_cp[:,id] = 0
             selected_block = table - table_cp
-            selected_block = selected_block[:,id].nonzero().reshape(-1)
+            selected_block = torch.sum(selected_block, dim=1)
+            selected_block = torch.unsqueeze(selected_block, dim=1)
             indices.append(selected_block)
         return torch.stack(indices)
 
