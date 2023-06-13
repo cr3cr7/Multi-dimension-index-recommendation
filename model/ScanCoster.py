@@ -1,7 +1,11 @@
+import sys
+sys.path.append('..')
+print(sys.path)
+
 import torch
 from torch import nn
 import pytorch_lightning as pl
-from common import TableDataset
+# from common import TableDataset
 from torch.utils.data import DataLoader
 #from data import datasets
 import datasets
@@ -12,6 +16,8 @@ from sklearn.metrics import f1_score, accuracy_score
 from model.generation import RankingModel, FilterModel
 import math
 from model.summarization import FeedFoward, SummarizationModel, Classifier
+
+
 
 class ScanCostTrainer(pl.LightningModule):
     def __init__(self, 
@@ -25,8 +31,9 @@ class ScanCostTrainer(pl.LightningModule):
 
     def forward(self, table, query):
         # 大小应为 batch_size ，此处手动设置
-        total_scan = torch.zeros(64, requires_grad=True).reshape(64, 1)
-        total_scan = total_scan.to(device=torch.device('cuda' if torch.cuda.is_available() else 'cpu'))
+        # total_scan = torch.zeros(64, requires_grad=True).reshape(64, 1)
+        # total_scan = total_scan.to(device=torch.device('cuda' if torch.cuda.is_available() else 'cpu'))
+        total_scan = 0.0
         query_embed = self.query_model(query)
         data2id = self.ranking_model(table)
         table = table.to(torch.int)
@@ -37,8 +44,8 @@ class ScanCostTrainer(pl.LightningModule):
             
             block_embed = self.block_model(block)
             scan = self.classifier(block_embed, query_embed)
-            scan = (scan > 0.5).float()
-            total_scan = torch.add(total_scan, scan)
+            # scan = (scan > 0.5).float()
+            total_scan = scan + total_scan
         #return scan
         return total_scan
 
@@ -161,3 +168,54 @@ class ScanCostTrainer(pl.LightningModule):
             else:
                 raise ValueError('Invalid lr_scheduler type!')
             return [optimizer], [scheduler]
+        
+        
+if __name__ == '__main__':
+    print(1)
+    dmodel = 2
+    block_size = 3
+    block_nums = 4 
+    input_bins = [2, 3, 4]
+    total_card = block_size * block_nums
+    ranking_model = RankingModel(block_size, block_nums, len(input_bins)).to(device='cuda')
+
+    filter_model = FilterModel().to(device='cuda')
+
+    query_model = SummarizationModel(d_model=dmodel, 
+                                nin=len(input_bins), 
+                                input_bins=input_bins,
+                                pad_size=total_card).to(device='cuda')
+    block_model = SummarizationModel(d_model=dmodel, 
+                                nin=len(input_bins), 
+                                input_bins=input_bins,
+                                pad_size=block_size).to(device='cuda')
+    classifier = Classifier(dmodel).to(device='cuda')
+    
+    query = torch.randint(low=0, high=2, size=(64, total_card, 3)).to(device='cuda')
+    table = torch.randint(low=0, high=2, size=(64, total_card, 3)).to(device='cuda')
+    
+    total_scan = 0.0
+    query_embed = query_model(query)
+    data2id = ranking_model(table.to(torch.long))
+    table = table.to(torch.int)
+    for id in range(block_nums):
+        indices = filter_model(data2id, id)
+        
+        block = torch.gather(table, 1, indices.unsqueeze(-1).expand(-1, -1, table.size(-1)))
+        
+        block_embed = block_model(block)
+        scan = classifier(block_embed, query_embed)
+        # scan = (scan > 0.5).float()
+        total_scan = scan + total_scan
+
+    total_scan = total_scan.sum()
+    
+    print(next(query_model.parameters()).grad)
+    print(next(ranking_model.parameters()).grad)
+    
+    total_scan.backward()
+    
+    print(next(query_model.parameters()).grad)
+    print(next(ranking_model.parameters()).grad)
+    
+    

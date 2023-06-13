@@ -37,7 +37,7 @@ class RankingModel(nn.Module):
             p2s = []
             for row in one_batch:
                 mask = self.update_mask(count)
-                logits = self.MLP(row) 
+                logits = self.MLP(row.to(torch.float)) 
                 # mask invalid bins
                 logits = logits + (1 - mask) * -1e9
                 # Sample soft categorical using reparametrization trick:
