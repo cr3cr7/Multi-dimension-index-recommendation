@@ -1,6 +1,6 @@
+# Unit test for ScanCoster.py, have to add the current path to sys.path
 import sys
 sys.path.append('..')
-print(sys.path)
 
 import torch
 from torch import nn
