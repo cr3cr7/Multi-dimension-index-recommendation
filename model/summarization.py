@@ -9,7 +9,7 @@ from util.Block import RandomBlockGeneration, BlockDataset
 from model.model_interface import ReportModel
 import torch.nn.functional as F
 from sklearn.metrics import f1_score, accuracy_score
-
+import time
 class Embedding(nn.Module):
     def __init__(self, d_model, nin, input_bins):
         super().__init__()
@@ -120,7 +120,10 @@ class SummaryTrainer(pl.LightningModule):
         
     
     def training_step(self, batch, batch_idx):
+        time1 = time.time()
         new_block, query_sample_data, result = batch
+        time2 = time.time()
+        print("gettting a training batch: ", time2 - time1)
         scan = self(query_sample_data, new_block)
         loss = self.loss_function(scan, result)
   
@@ -132,7 +135,10 @@ class SummaryTrainer(pl.LightningModule):
         
         
     def validation_step(self, batch, batch_idx):
+        time1 = time.time()
         new_block, query_sample_data, result = batch
+        time2 = time.time()
+        print("gettting a validation batch: ", time2 - time1)
         scan = self(query_sample_data, new_block)
         loss = self.loss_function(scan, result)
         # Measure Accuracy

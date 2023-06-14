@@ -37,22 +37,22 @@ def main(args):
 
     if args.load_path is None:
         # model = MInterface(**vars(args))
-        # model = SummaryTrainer(**vars(args))
-        model = ScanCostTrainer(**vars(args))
+        model = SummaryTrainer(**vars(args))
+        #　model = ScanCostTrainer(**vars(args))
     else:
         # model = MInterface(**vars(args))
-        # model = SummaryTrainer(**vars(args))
-        model = ScanCostTrainer(**vars(args))
+        model = SummaryTrainer(**vars(args))
+        # model = ScanCostTrainer(**vars(args))
         # args.ckpt_path = args.load_path
 
     # # If you want to change the logger's saving folder
-    # logger = WandbLogger(save_dir=args.log_dir, project="debug")
-    logger = False
+    logger = WandbLogger(save_dir=args.log_dir, project="test cost model")
+    # logger = False
     args.logger = logger
     args.callbacks = load_callbacks()
 
-    # trainer = Trainer.from_argparse_args(args, accelerator='gpu', gpus=1, log_every_n_steps=1)
-    trainer = Trainer.from_argparse_args(args, accelerator='gpu', gpus=1, fast_dev_run=True)
+    trainer = Trainer.from_argparse_args(args, accelerator='gpu', gpus=1, log_every_n_steps=1, profiler="simple")
+    # trainer = Trainer.from_argparse_args(args, accelerator='gpu', gpus=1, fast_dev_run=True)
     trainer.fit(model)
 
 if __name__ == '__main__':
@@ -83,7 +83,7 @@ if __name__ == '__main__':
     parser.add_argument('--rand', type=str, default=True, help='Whether generate random queries every new batch (for debug purpose).')
     parser.add_argument('--data_dir', default='ref/data', type=str)
     parser.add_argument('--model_name', default='transformer', type=str)
-    parser.add_argument('--loss', default='mse', type=str)
+    parser.add_argument('--loss', default='bce', type=str)
     parser.add_argument('--weight_decay', default=1e-5, type=float)
     parser.add_argument('--no_augment', action='store_true')
     parser.add_argument('--log_dir', default='lightning_logs', type=str)

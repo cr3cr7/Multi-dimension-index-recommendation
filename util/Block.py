@@ -160,7 +160,7 @@ class BlockDataset(data.Dataset):
        
         # 3. Get the sampled Query data
         query_sample_data = self.Sample(self.table, Queries[0])
-        
+
         # Define the desired size of the padded tensor
         desired_size = (self.pad_size, len(self.cols))
 
