@@ -99,7 +99,11 @@ class BlockDataset(data.Dataset):
         self.cols_max = {}
         
         # Generate test Queries
-        self.testQuery, self.testScanConds =  QueryGeneration(1, self.table.data, self.cols)
+        self.testQuery, self.testScanConds =  QueryGeneration(100, self.table.data, self.cols)
+        self.sample_data = []
+        for query in self.testQuery:
+            self.sample_data.append(self.Sample(self.table, query))
+
 
     def Discretize(self, col):
         """Discretize values into its Column's bins.
@@ -176,17 +180,17 @@ class BlockDataset(data.Dataset):
             return self.testQuery, self.testScanConds
 
     def __len__(self):
-        return 64
+        return len(self.sample_data)
     
     def __getitem__(self, idx):     
         # 2. Get the query
         #print(self.table.data)
         Queries, scan_conds = self.getQuery(rand=self.rand)
-        #print("qcols: ", scan_conds[0][0], "qrange: ", scan_conds[0][1])
+        # print("qcols: ", scan_conds[0][0], "qrange: ", scan_conds[0][1])
     
         
         # 3. Get the sampled Query data
-        query_sample_data = self.Sample(self.table, Queries[0])
+        query_sample_data = self.sample_data[idx]
         
         # Define the desired size of the padded tensor
         desired_size = (self.pad_size, len(self.cols))
@@ -207,7 +211,16 @@ class BlockDataset(data.Dataset):
             query_sample_data = query_sample_data.narrow(0, start_idx, desired_size[0])
         
         # block(batch, card, cols)  query(batch, card, cols)  result(batch, 1)
-        return self.orig_tuples.to(torch.float), query_sample_data.to(torch.int), torch.tensor([math.ceil(current_size[0] / self.block_size)], dtype=torch.float)
+        item = {'table': self.orig_tuples.to(torch.float), \
+                'query': query_sample_data.to(torch.int), \
+                'col': scan_conds[idx][0],\
+                'min_range': scan_conds[idx][1][0],\
+                'max_range': scan_conds[idx][1][1]}
+        # return self.orig_tuples.to(torch.float), \
+        #         query_sample_data.to(torch.int), \
+        #         scan_conds[idx][0], \
+        #         scan_conds[idx][1]
+        return item
         
          
     def _is_scan(self, qcols, qranges):

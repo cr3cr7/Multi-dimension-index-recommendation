@@ -15,7 +15,7 @@ import torch.nn.functional as F
 from sklearn.metrics import f1_score, accuracy_score
 from model.generation import RankingModel, FilterModel
 import math
-from model.summarization import FeedFoward, SummarizationModel, Classifier, Embedding
+from model.summarization import FeedFoward, SummarizationModel, Classifier, Embedding, SummaryTrainer
 
 
 
@@ -29,8 +29,22 @@ class ScanCostTrainer(pl.LightningModule):
         self.lr = kargs['lr']
         self.rand = kargs['rand']
         self.configure_loss()
+        
+        self.PATH = "/data1/chenxu/projects/Multi-dimension-index-recommendation/lightning_logs/debug/cg67cnwq/checkpoints/best-epoch=610-val_acc=0.828.ckpt"
+        
+        # self.SumModel = SummaryTrainer(**kargs)
+        # self.SumModel.setup(stage='fit')
+        # for param_tensor in self.SumModel.state_dict():
+        #     print(param_tensor, "\t", self.SumModel.state_dict()[param_tensor].size())
+        
+        # print(torch.load(self.PATH)['state_dict'].keys())
+            
+        # self.SumModel.load_from_checkpoint(self.PATH)
 
     def forward(self, table, query):
+        self.classifier.eval()
+        self.embedding_model.eval()
+        self.summarized_model.eval()
         # 大小应为 batch_size ，此处手动设置
         total_scan = 0.0
         
@@ -63,19 +77,29 @@ class ScanCostTrainer(pl.LightningModule):
         return total_scan
 
     def training_step(self, batch, batch_idx):
-        table, query_sample_data, target = batch 
+        table = batch['table']
+        query_sample_data = batch['query']
+        col = batch['col']
+        # table, query_sample_data, target = batch 
         scan = self(table, query_sample_data)
         
         scan = scan.sum()
-        # Todo: 1. loss function 2. freeze partial model
+   
         self.log('scan', scan, on_step=True, on_epoch=True, prog_bar=True)
         return scan
 
     def validation_step(self, batch, batch_idx):
-        table, query_sample_data, target = batch
-        scan = self(table, query_sample_data)
+        table = batch['table']
+        query_sample_data = batch['query']
+        col = batch['col']
+        print(col)
+        # table, query_sample_data, target = batch
+        em_query = self.embedding_model(query_sample_data)
+        query_embed = self.summarized_model(em_query)
+
+        data2id = self.ranking_model(table)
         
-        scan = scan.sum()
+        scan = 1
         #self.log('loss', loss, on_step=True, on_epoch=True, prog_bar=True)
         self.log_dict({'val_scan': scan}, on_step=True, on_epoch=True, prog_bar=True)
         return scan
@@ -113,13 +137,24 @@ class ScanCostTrainer(pl.LightningModule):
 
         self.load_model(table.Columns())
         ReportModel(self.ranking_model)
-        ReportModel(self.ranking_model)
         ReportModel(self.summarized_model)
         ReportModel(self.classifier)
         ReportModel(self.embedding_model)
 
 
     def load_model(self, columns):
+        state_dict = torch.load(self.PATH)['state_dict']
+        print(state_dict.keys())
+        from collections import OrderedDict
+        new_state_dict = OrderedDict()
+        for k, v in state_dict.items():
+            modelname, statename = k.split('.', 1) # remove `modelname.`
+            if new_state_dict.get(modelname) is None:
+                new_state_dict[modelname] = OrderedDict()
+                new_state_dict[modelname][statename] = v
+            else:
+                new_state_dict[modelname][statename] = v
+        
         self.ranking_model = RankingModel(self.hparams.block_size, self.block_nums, len(self.cols))
 
         self.filter_model = FilterModel()
@@ -128,12 +163,23 @@ class ScanCostTrainer(pl.LightningModule):
         self.summarized_model = SummarizationModel(d_model=self.hparams.dmodel, 
                                         nin=len(columns), 
                                         pad_size=self.hparams.pad_size)
-        
+        self.summarized_model.load_state_dict(new_state_dict['model'])
+        print("load")
         self.classifier = Classifier(self.hparams.dmodel)
+        self.classifier.load_state_dict(new_state_dict['classifier']) 
 
         self.embedding_model = Embedding(d_model=self.hparams.dmodel, 
                                         nin=len(columns), 
                                         input_bins=[c.DistributionSize() for c in columns])
+        self.embedding_model.load_state_dict(new_state_dict['embedding_model'])
+        
+        for param in self.embedding_model.parameters():
+            param.requires_grad = False
+        for param in self.summarized_model.parameters():
+            param.requires_grad = False
+        for param in self.classifier.parameters():
+            param.requires_grad = False
+    
         # Freeze model
 
     def train_dataloader(self):
@@ -164,7 +210,7 @@ class ScanCostTrainer(pl.LightningModule):
         # else:
         #     weight_decay = 0
         optimizer = torch.optim.AdamW(
-            self.parameters(), lr=self.hparams.lr)
+            filter(lambda p: p.requires_grad, self.parameters()), lr=self.hparams.lr)
 
         if self.hparams.lr_scheduler is None:
             return optimizer
