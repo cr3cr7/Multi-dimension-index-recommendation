@@ -170,12 +170,12 @@ class SummaryTrainer(pl.LightningModule):
         # Assign train/val datasets for use in dataloaders
         self.cols = table.ColumnNames()
         if stage == 'fit' or stage is None:
-            self.trainset = BlockDataset(table, self.hparams.block_size, self.cols, rand=self.rand)
-            self.valset = BlockDataset(table, self.hparams.block_size, self.cols, rand=self.rand)
+            self.trainset = BlockDataset(table, self.hparams.block_size, self.cols, self.hparams.pad_size, rand=self.rand)
+            self.valset = BlockDataset(table, self.hparams.block_size, self.cols, self.hparams.pad_size, rand=self.rand)
 
         # Assign test dataset for use in dataloader(s)
         if stage == 'test' or stage is None:
-            self.testset = BlockDataset(table, self.hparams.block_size, self.cols, rand=self.rand)
+            self.testset = BlockDataset(table, self.hparams.block_size, self.cols, self.hparams.pad_size, rand=self.rand)
 
         self.load_model(table.columns)
         ReportModel(self.model)
@@ -184,7 +184,7 @@ class SummaryTrainer(pl.LightningModule):
     def load_model(self, columns):
         self.model = SummarizationModel(d_model=self.hparams.dmodel, 
                                         nin=len(columns), 
-                                        pad_size=99)
+                                        pad_size=self.hparams.pad_size)
     
         self.classifier = Classifier(self.hparams.dmodel)
         

@@ -74,11 +74,15 @@ class BlockDataset(data.Dataset):
     def __init__(self, table: common.CsvTable, 
                        block_size: int, 
                        cols: list,
+                       pad_size: int,
+                       rand: bool = False
                        ):
         self.table = copy.deepcopy(table)
         self.block_size = block_size
         self.cols = cols
         self.block_nums = math.ceil(self.table.data.shape[0] / self.block_size)
+        self.rand = rand
+        self.pad_size = pad_size
 
         s = time.time()
         # [cardianlity, num cols].
@@ -93,7 +97,9 @@ class BlockDataset(data.Dataset):
         
         self.cols_min = {}
         self.cols_max = {}
-    
+        
+        # Generate test Queries
+        self.testQuery, self.testScanConds =  QueryGeneration(1, self.table.data, self.cols)
 
     def Discretize(self, col):
         """Discretize values into its Column's bins.
@@ -162,13 +168,20 @@ class BlockDataset(data.Dataset):
         indices = selected_block.nonzero()
         return indices, torch.index_select(self.orig_tuples, 0, indices)
     
+    def getQuery(self, rand: bool):
+        if rand:
+            Queries, scan_conds = QueryGeneration(1, self.table.data, self.cols)
+            return Queries, scan_conds
+        else:
+            return self.testQuery, self.testScanConds
+
     def __len__(self):
         return 64
     
     def __getitem__(self, idx):     
         # 2. Get the query
         #print(self.table.data)
-        Queries, scan_conds = QueryGeneration(1, self.table.data, self.cols)
+        Queries, scan_conds = self.getQuery(rand=self.rand)
         #print("qcols: ", scan_conds[0][0], "qrange: ", scan_conds[0][1])
     
         
@@ -176,7 +189,7 @@ class BlockDataset(data.Dataset):
         query_sample_data = self.Sample(self.table, Queries[0])
         
         # Define the desired size of the padded tensor
-        desired_size = (50, len(self.cols))
+        desired_size = (self.pad_size, len(self.cols))
 
         # Get the current size of the tensor
         current_size = query_sample_data.size()

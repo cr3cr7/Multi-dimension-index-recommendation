@@ -73,12 +73,14 @@ class BlockDataset(data.Dataset):
     def __init__(self, table: common.CsvTable, 
                        block_size: int, 
                        cols: list,
-                       rand: bool = False):
+                       pad_size: int,
+                       rand: bool = False
+                       ):
         self.table = copy.deepcopy(table)
         self.block_size = block_size
         self.cols = cols
         self.rand = rand
-        
+        self.pad_size = pad_size
         
         s = time.time()
         # [cardianlity, num cols].
@@ -160,7 +162,7 @@ class BlockDataset(data.Dataset):
         query_sample_data = self.Sample(self.table, Queries[0])
         
         # Define the desired size of the padded tensor
-        desired_size = (99, len(self.cols))
+        desired_size = (self.pad_size, len(self.cols))
 
         # Get the current size of the tensor
         current_size = query_sample_data.size()

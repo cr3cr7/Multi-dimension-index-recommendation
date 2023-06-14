@@ -27,6 +27,7 @@ class ScanCostTrainer(pl.LightningModule):
         self.save_hyperparameters()
         self.num_workers = num_workers
         self.lr = kargs['lr']
+        self.rand = kargs['rand']
         self.configure_loss()
 
     def forward(self, table, query):
@@ -34,7 +35,7 @@ class ScanCostTrainer(pl.LightningModule):
         total_scan = 0.0
         
         em_query = self.embedding_model(query)
-        query_embed = self.query_model(em_query)
+        query_embed = self.summarized_model(em_query)
 
         data2id = self.ranking_model(table)
         table = self.embedding_model(table.to(torch.int))
@@ -47,7 +48,14 @@ class ScanCostTrainer(pl.LightningModule):
             # (batch_size, block_size, col, dmodel)
             selected_block = torch.gather(block, 1, indices.unsqueeze(-1).expand(-1, -1, block.size(2)).unsqueeze(-1).expand(-1, -1, -1, block.size(-1)))
 
-            block_embed = self.block_model(selected_block)
+            # padding
+            current_size = selected_block.size(1)
+            if current_size < self.hparams.pad_size:
+                pad_amounts = [0, 0, 0, 0, 0, self.hparams.pad_size - current_size]
+
+                selected_block = F.pad(selected_block, pad_amounts, "constant", 0)
+
+            block_embed = self.summarized_model(selected_block)
             scan = self.classifier(block_embed, query_embed)
             # scan = (scan > 0.5).float()
             total_scan = scan + total_scan
@@ -57,32 +65,27 @@ class ScanCostTrainer(pl.LightningModule):
     def training_step(self, batch, batch_idx):
         table, query_sample_data, target = batch 
         scan = self(table, query_sample_data)
-        """ table_size = torch.tensor(table.size()[0], dtype=float)
-        target = (table_size / query_size).ceil() """
-        loss = self.loss_function(scan, target)
+        
+        scan = scan.sum()
         # Todo: 1. loss function 2. freeze partial model
-        self.log('loss', loss, on_step=True, on_epoch=True, prog_bar=True)
-        return loss
+        self.log('scan', scan, on_step=True, on_epoch=True, prog_bar=True)
+        return scan
 
     def validation_step(self, batch, batch_idx):
         table, query_sample_data, target = batch
         scan = self(table, query_sample_data)
-        """ table_size = torch.tensor(table.size()[1], dtype=float)
-        target = (table_size / query_size).ceil() """
-        loss = self.loss_function(scan, target)
-
+        
+        scan = scan.sum()
         #self.log('loss', loss, on_step=True, on_epoch=True, prog_bar=True)
-        self.log_dict({'val_loss': loss}, on_step=True, on_epoch=True, prog_bar=True)
-        return loss
+        self.log_dict({'val_scan': scan}, on_step=True, on_epoch=True, prog_bar=True)
+        return scan
 
     def test_step(self, batch, batch_idx):
         table, query_sample_data, target = batch 
         scan = self(table, query_sample_data)
-        """ table_size = torch.tensor(table.size()[0], dtype=float)
-        target = (table_size / query_size).ceil() """
-        loss = self.loss_function(scan, target)
-        self.log('loss', loss, on_step=True, on_epoch=True, prog_bar=True)
-        return loss
+        scan = scan.sum()
+        self.log('scan', scan, on_step=True, on_epoch=True, prog_bar=True)
+        return scan
 
     def setup(self, stage=None):
         dataset = self.hparams.dataset.lower()
@@ -101,18 +104,17 @@ class ScanCostTrainer(pl.LightningModule):
         self.cols = table.ColumnNames()
         self.block_nums = math.ceil(table.data.shape[0] / self.hparams.block_size)
         if stage == 'fit' or stage is None:
-            self.trainset = BlockDataset(table, self.hparams.block_size, self.cols)
-            self.valset = BlockDataset(table, self.hparams.block_size, self.cols)
+            self.trainset = BlockDataset(table, self.hparams.block_size, self.cols, self.hparams.pad_size, rand=self.rand)
+            self.valset = BlockDataset(table, self.hparams.block_size, self.cols, self.hparams.pad_size, rand=self.rand)
 
         # Assign test dataset for use in dataloader(s)
         if stage == 'test' or stage is None:
-            self.testset = BlockDataset(table, self.hparams.block_size, self.cols)
+            self.testset = BlockDataset(table, self.hparams.block_size, self.cols, self.hparams.pad_size, rand=self.rand)
 
         self.load_model(table.Columns())
         ReportModel(self.ranking_model)
         ReportModel(self.ranking_model)
-        ReportModel(self.query_model)
-        ReportModel(self.block_model)
+        ReportModel(self.summarized_model)
         ReportModel(self.classifier)
         ReportModel(self.embedding_model)
 
@@ -123,12 +125,10 @@ class ScanCostTrainer(pl.LightningModule):
         self.filter_model = FilterModel()
 
         # Freeze model
-        self.query_model = SummarizationModel(d_model=self.hparams.dmodel, 
+        self.summarized_model = SummarizationModel(d_model=self.hparams.dmodel, 
                                         nin=len(columns), 
-                                        pad_size=50)
-        self.block_model = SummarizationModel(d_model=self.hparams.dmodel, 
-                                        nin=len(columns),
-                                        pad_size=self.hparams.block_size)
+                                        pad_size=self.hparams.pad_size)
+        
         self.classifier = Classifier(self.hparams.dmodel)
 
         self.embedding_model = Embedding(d_model=self.hparams.dmodel, 

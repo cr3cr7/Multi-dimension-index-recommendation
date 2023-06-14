@@ -77,8 +77,9 @@ if __name__ == '__main__':
     parser.add_argument('--load_v_num', default=None, type=int)
 
     # Training Info
+    parser.add_argument('--pad_size', type=int, default='99', help='Padding Size')
     parser.add_argument('--block_size', type=int, default='20', help='Block Size of a FS block.')
-    parser.add_argument('--dataset', type=str, default='lineitem', help='Dataset.')
+    parser.add_argument('--dataset', type=str, default='dmv-tiny', help='Dataset.')
     parser.add_argument('--rand', type=str, default=True, help='Whether generate random queries every new batch (for debug purpose).')
     parser.add_argument('--data_dir', default='ref/data', type=str)
     parser.add_argument('--model_name', default='transformer', type=str)
