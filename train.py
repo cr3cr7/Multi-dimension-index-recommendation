@@ -48,8 +48,8 @@ def main(args):
         # args.ckpt_path = args.load_path
 
     # # If you want to change the logger's saving folder
-    logger = WandbLogger(name="dmv_tiny_model", save_dir=args.log_dir, project="debug")
-    # logger = False
+    # logger = WandbLogger(name="dmv_tiny_model", save_dir=args.log_dir, project="debug")
+    logger = False
     args.logger = logger
     args.callbacks = load_callbacks()
 

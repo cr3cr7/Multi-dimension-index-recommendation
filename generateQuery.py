@@ -34,6 +34,9 @@ def SampleTupleThenRandom(all_cols,
             if ops[i] == '<=':
                 ranges[i][1] = vals[i]
                 ranges[i][0] = data[all_cols[i]].min()
+            if str(type(ranges[i][0])) == "<class 'pandas._libs.tslibs.timestamps.Timestamp'>":
+                ranges[i][1] = ranges[i][1].strftime('%Y-%m-%d %H:%M:%S')
+                ranges[i][0] = ranges[i][0].strftime('%Y-%m-%d %H:%M:%S')
         if return_col_idx:
             return np.arange(len(all_cols)), ops, vals, ranges
         return all_cols, ops, vals, ranges
@@ -49,6 +52,9 @@ def SampleTupleThenRandom(all_cols,
         if ops[i] == '<=':
             ranges[i][1] = vals[i]
             ranges[i][0] = data[cols[i]].min()
+        if str(type(ranges[i][0])) == "<class 'pandas._libs.tslibs.timestamps.Timestamp'>":
+                ranges[i][1] = ranges[i][1].strftime('%Y-%m-%d %H:%M:%S')
+                ranges[i][0] = ranges[i][0].strftime('%Y-%m-%d %H:%M:%S')
     if return_col_idx:
         return idxs, ops, vals, ranges
 

@@ -194,6 +194,9 @@ class BlockDataset(data.Dataset):
     def _is_scan(self, qcols, qranges):
         for idx, i in enumerate(qcols):
             if self.cols_min.get(i, False):
+                if i == 'Reg Valid Date' or i == 'Reg Expiration Date':
+                    qranges[idx][0] = pd.to_datetime(qranges[idx][0])
+                    qranges[idx][1] = pd.to_datetime(qranges[idx][0])
                 #print("qcol: ", i)
                 if self.cols_min[i] > qranges[idx][1] or self.cols_max[i] < qranges[idx][0]:
                     return False

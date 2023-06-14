@@ -214,8 +214,7 @@ class BlockDataset(data.Dataset):
         item = {'table': self.orig_tuples.to(torch.float), \
                 'query': query_sample_data.to(torch.int), \
                 'col': scan_conds[idx][0],\
-                'min_range': scan_conds[idx][1][0],\
-                'max_range': scan_conds[idx][1][1]}
+                'range': scan_conds[idx][1]}
         # return self.orig_tuples.to(torch.float), \
         #         query_sample_data.to(torch.int), \
         #         scan_conds[idx][0], \
@@ -226,6 +225,9 @@ class BlockDataset(data.Dataset):
     def _is_scan(self, qcols, qranges):
         for idx, i in enumerate(qcols):
             if self.cols_min.get(i, False):
+                if i == 'Reg Valid Date' or i == 'Reg Expiration Date':
+                    qranges[idx][0] = pd.to_datetime(qranges[idx][0])
+                    qranges[idx][1] = pd.to_datetime(qranges[idx][0])
                 #print("qcol: ", i)
                 if self.cols_min[i] > qranges[idx][1] or self.cols_max[i] < qranges[idx][0]:
                     return False
