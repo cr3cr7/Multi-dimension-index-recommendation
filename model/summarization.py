@@ -110,11 +110,10 @@ class SummaryTrainer(pl.LightningModule):
 
     def forward(self, query, block):
         em_query = self.embedding_model(query)
-
         query_embed = self.model(em_query)
 
         em_block = self.embedding_model(block)
-        block_embed = self.b_model(em_block)
+        block_embed = self.model(em_block)
         
         scan = self.classifier(block_embed, query_embed)
         return scan
@@ -185,10 +184,7 @@ class SummaryTrainer(pl.LightningModule):
     def load_model(self, columns):
         self.model = SummarizationModel(d_model=self.hparams.dmodel, 
                                         nin=len(columns), 
-                                        pad_size=50)
-        self.b_model = SummarizationModel(d_model=self.hparams.dmodel, 
-                                        nin=len(columns), 
-                                        pad_size=20)
+                                        pad_size=99)
     
         self.classifier = Classifier(self.hparams.dmodel)
         

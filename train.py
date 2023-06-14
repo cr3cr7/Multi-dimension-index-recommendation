@@ -48,7 +48,7 @@ def main(args):
     # # If you want to change the logger's saving folder
     # logger = WandbLogger(save_dir=args.log_dir, project="debug")
     logger = False
-    # args.logger = logger
+    args.logger = logger
     args.callbacks = load_callbacks()
 
     # trainer = Trainer.from_argparse_args(args, accelerator='gpu', gpus=1, log_every_n_steps=1)
@@ -78,7 +78,8 @@ if __name__ == '__main__':
 
     # Training Info
     parser.add_argument('--block_size', type=int, default='20', help='Block Size of a FS block.')
-    parser.add_argument('--dataset', type=str, default='dmv-tiny', help='Dataset.')
+    parser.add_argument('--dataset', type=str, default='lineitem', help='Dataset.')
+    parser.add_argument('--rand', type=str, default=True, help='Whether generate random queries every new batch (for debug purpose).')
     parser.add_argument('--data_dir', default='ref/data', type=str)
     parser.add_argument('--model_name', default='transformer', type=str)
     parser.add_argument('--loss', default='mse', type=str)

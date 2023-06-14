@@ -44,8 +44,8 @@ class ScanCostTrainer(pl.LightningModule):
             
             block = table * block_id.unsqueeze(-1)
 
+            # (batch_size, block_size, col, dmodel)
             selected_block = torch.gather(block, 1, indices.unsqueeze(-1).expand(-1, -1, block.size(2)).unsqueeze(-1).expand(-1, -1, -1, block.size(-1)))
-            
 
             block_embed = self.block_model(selected_block)
             scan = self.classifier(block_embed, query_embed)
@@ -60,6 +60,7 @@ class ScanCostTrainer(pl.LightningModule):
         """ table_size = torch.tensor(table.size()[0], dtype=float)
         target = (table_size / query_size).ceil() """
         loss = self.loss_function(scan, target)
+        # Todo: 1. loss function 2. freeze partial model
         self.log('loss', loss, on_step=True, on_epoch=True, prog_bar=True)
         return loss
 
@@ -90,7 +91,7 @@ class ScanCostTrainer(pl.LightningModule):
         elif dataset == 'dmv-tiny':
             table = datasets.LoadDmv('dmv-tiny.csv')
         elif dataset == 'lineitem':
-            table = datasets.LoadDmv('lineitem.csv')
+            table = datasets.LoadLineitem('lineitem.csv')
         else:
             raise ValueError(
                 f'Invalid Dataset File Name or Invalid Class Name data.{dataset}')
@@ -121,6 +122,7 @@ class ScanCostTrainer(pl.LightningModule):
 
         self.filter_model = FilterModel()
 
+        # Freeze model
         self.query_model = SummarizationModel(d_model=self.hparams.dmodel, 
                                         nin=len(columns), 
                                         pad_size=50)
@@ -132,6 +134,7 @@ class ScanCostTrainer(pl.LightningModule):
         self.embedding_model = Embedding(d_model=self.hparams.dmodel, 
                                         nin=len(columns), 
                                         input_bins=[c.DistributionSize() for c in columns])
+        # Freeze model
 
     def train_dataloader(self):
         return DataLoader(self.trainset, batch_size=self.hparams.batch_size, num_workers=self.num_workers, shuffle=True)
