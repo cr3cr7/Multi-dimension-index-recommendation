@@ -19,8 +19,8 @@ def load_callbacks():
     # ))
 
     callbacks.append(plc.ModelCheckpoint(
-        monitor='val_loss',
-        filename='best-{epoch:02d}-{val_acc:.3f}',
+        monitor='scan',
+        filename='best-{epoch:02d}-{val_scan:.3f}',
         save_top_k=1,
         mode='min',
         save_last=True
@@ -37,24 +37,22 @@ def main(args):
 
     if args.load_path is None:
         # model = MInterface(**vars(args))
-        model = SummaryTrainer(**vars(args))
-        #　model = ScanCostTrainer(**vars(args))
-        model = SummaryTrainer(**vars(args))
-        # model = ScanCostTrainer(**vars(args))
+        # model = SummaryTrainer(**vars(args))
+        model = ScanCostTrainer(**vars(args))
     else:
         # model = MInterface(**vars(args))
-        model = SummaryTrainer(**vars(args))
-        # model = ScanCostTrainer(**vars(args))
+        # model = SummaryTrainer(**vars(args))
+        model = ScanCostTrainer(**vars(args))
         # args.ckpt_path = args.load_path
 
     # # If you want to change the logger's saving folder
-    logger = WandbLogger(name="dmv_tiny_model", save_dir=args.log_dir, project="debug")
-    # logger = False
+    # logger = WandbLogger(name="dmv_tiny_SortOrder", save_dir=args.log_dir, project="debug")
+    logger = False
     args.logger = logger
     args.callbacks = load_callbacks()
 
-    trainer = Trainer.from_argparse_args(args, accelerator='gpu', gpus=1, log_every_n_steps=1, profiler="simple")
-    # trainer = Trainer.from_argparse_args(args, accelerator='gpu', gpus=1, fast_dev_run=True)
+    # trainer = Trainer.from_argparse_args(args, accelerator='gpu', gpus=1, log_every_n_steps=1)
+    trainer = Trainer.from_argparse_args(args, accelerator='gpu', gpus=1, fast_dev_run=True)
     trainer.fit(model)
 
 if __name__ == '__main__':
@@ -82,7 +80,7 @@ if __name__ == '__main__':
     parser.add_argument('--pad_size', type=int, default='99', help='Padding Size')
     parser.add_argument('--block_size', type=int, default='20', help='Block Size of a FS block.')
     parser.add_argument('--dataset', type=str, default='dmv-tiny', help='Dataset.')
-    parser.add_argument('--rand', type=str, default=True, help='Whether generate random queries every new batch (for debug purpose).')
+    parser.add_argument('--rand', type=str, default=False, help='Whether generate random queries every new batch (for debug purpose).')
     parser.add_argument('--data_dir', default='ref/data', type=str)
     parser.add_argument('--model_name', default='transformer', type=str)
     parser.add_argument('--loss', default='bce', type=str)
