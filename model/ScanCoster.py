@@ -30,7 +30,7 @@ class ScanCostTrainer(pl.LightningModule):
         self.rand = kargs['rand']
         self.configure_loss()
         
-        self.PATH = "/data1/chenx/project/Multi-dimension-index-recommendation/lightning_logs/debug/cg67cnwq/checkpoints/best-epoch=610-val_acc=0.828.ckpt"
+        self.PATH = "/data1/chenxu/projects/Multi-dimension-index-recommendation/lightning_logs/debug/cg67cnwq/checkpoints/best-epoch=610-val_acc=0.828.ckpt"
         
         # self.SumModel = SummaryTrainer(**kargs)
         # self.SumModel.setup(stage='fit')
@@ -163,7 +163,7 @@ class ScanCostTrainer(pl.LightningModule):
         self.block_nums = math.ceil(table.data.shape[0] / self.hparams.block_size)
         if stage == 'fit' or stage is None:
             self.trainset = BlockDataset(table, self.hparams.block_size, self.cols, self.hparams.pad_size, rand=self.rand)
-            self.valset = BlockDataset(table, self.hparams.block_size, self.cols, self.hparams.pad_size, rand=self.rand)
+            self.valset = self.trainset
 
         # Assign test dataset for use in dataloader(s)
         if stage == 'test' or stage is None:
