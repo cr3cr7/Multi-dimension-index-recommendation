@@ -13,12 +13,14 @@ from sklearn.metrics import f1_score, accuracy_score
 import math
 
 class RankingModel(nn.Module):
-    def __init__(self, BlockSize, BlockNum, col_num):
+    def __init__(self, BlockSize, BlockNum, col_num, dmodel):
         super(RankingModel, self).__init__()
         self.capacity = BlockSize
         self.BlockNum = BlockNum
+        self.col_num = col_num
+        self.dmodel = dmodel
         self.MLP = nn.Sequential(
-            nn.Linear(col_num, 32),
+            nn.Linear(col_num * dmodel, 32),
             nn.ReLU(),
             nn.Linear(32, self.BlockNum),
             nn.ReLU()
@@ -27,7 +29,8 @@ class RankingModel(nn.Module):
         
     
     def forward(self, table):
-        # (batch_size, RowNum, BlockNum)
+        # (batch_size, RowNum, colNum, dmodel)
+        RowNum = table.shape[1]
         p1ss = []
         p2ss = []
         for one_batch in table:
@@ -37,7 +40,7 @@ class RankingModel(nn.Module):
             p2s = []
             for row in one_batch:
                 mask = self.update_mask(count)
-                logits = self.MLP(row.to(torch.float)) 
+                logits = self.MLP(row.reshape(-1))
                 # mask invalid bins
                 logits = logits + (1 - mask) * -1e9
                 # Sample soft categorical using reparametrization trick:

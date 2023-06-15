@@ -186,7 +186,7 @@ if __name__ == '__main__':
     block_nums = 4 
     input_bins = [2, 3, 4]
     total_card = block_size * block_nums
-    ranking_model = RankingModel(block_size, block_nums, len(input_bins)).to(device='cuda')
+    ranking_model = RankingModel(block_size, block_nums, len(input_bins), dmodel=dmodel).to(device='cuda')
 
     filter_model = FilterModel().to(device='cuda')
 
@@ -217,9 +217,11 @@ if __name__ == '__main__':
     print(next(embedding_model.parameters()).grad)
     print(em_query.grad) """
 
-    data2id = ranking_model(table.to(torch.float))
+    # data2id = ranking_model(table.to(torch.float))
     
-    table = embedding_model(table)
+    # table = embedding_model(table)
+    table = embedding_model(table.to(torch.int))
+    data2id = ranking_model(table)
     
     """ block_id, indices = filter_model(data2id, 1)
     block_id.retain_grad()
@@ -250,7 +252,7 @@ if __name__ == '__main__':
     print(next(classifier.parameters()).grad)
     total_scan.backward()
     
-    print(next(query_model.parameters()).grad)
-    print(next(block_model.parameters()).grad)
+    # print(next(query_model.parameters()).grad)
+    # print(next(block_model.parameters()).grad)
     print(next(ranking_model.parameters()).grad)
     

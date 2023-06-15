@@ -66,7 +66,7 @@ class SummarizationModel(nn.Module):
             
     def forward(self, x):
         # x: [batch_size, nin]
-        # inp: [batch_size, nin, d_model]
+        # inp: [batch_size, row, col, d_model]
         """ y_embed = []
         for nat_idx in range(self.nin):
             y_embed.append(self.embeddings[nat_idx](x[:, :, nat_idx]))
@@ -77,11 +77,34 @@ class SummarizationModel(nn.Module):
         inp = self.summarization(inp)
         return inp
 
+class SummarizationModel2(nn.Module):
+    def __init__(self, d_model, Ncol, hidden_size=32, kernel_size=7, pool_size=2):
+        super().__init__()
+        self.conv = nn.Conv1d(d_model * Ncol, hidden_size, kernel_size)
+        self.pool = nn.MaxPool1d(pool_size)
+
+        
+    def forward(self, x):
+        # x: [batch_size, seq_len, input_size]
+        x = x.reshape(x.shape[0], x.shape[1], -1)  # [batch_size, seq_len, input_size]
+        x = x.permute(0, 2, 1)  # [batch_size, input_size, seq_len]
+        x = self.conv(x)  # [batch_size, hidden_size, seq_len - kernel_size + 1]
+        x = nn.functional.relu(x)
+        x = self.pool(x)  # [batch_size, hidden_size, (seq_len - kernel_size + 1) // pool_size]
+        x = x.view(x.size(0), -1)  # [batch_size, hidden_size * (seq_len - kernel_size + 1) // pool_size]
+        x = F.relu(x)
+        # print(x.shape)
+        return x
+    
+
 class Classifier(nn.Module):
     def __init__(self, d_model):
         super().__init__()
         self.classifier = nn.Sequential(
-            nn.Linear(d_model, 1),
+            nn.Linear(d_model * 2, 64),
+            # nn.Linear(1472 * 2, 64),
+            nn.ReLU(),
+            nn.Linear(64, 1),
             nn.Sigmoid()
         )
     
@@ -92,9 +115,10 @@ class Classifier(nn.Module):
         # output: [batch_size, block_num, query_num]
         
         # element-wise multiplication
-        elementwise_product = block_embedding * query_embedding
+        # elementwise_product = block_embedding * query_embedding
+        concat = torch.cat((block_embedding, query_embedding), dim=-1)
         # apply linear layer and sigmoid
-        output = self.classifier(elementwise_product)
+        output = self.classifier(concat)
         return output.view(output.shape[0], -1)
         
 
@@ -192,9 +216,11 @@ class SummaryTrainer(pl.LightningModule):
         ReportModel(self.classifier)
 
     def load_model(self, columns):
-        self.model = SummarizationModel(d_model=self.hparams.dmodel, 
-                                        nin=len(columns), 
-                                        pad_size=self.hparams.pad_size)
+        # self.model = SummarizationModel(d_model=self.hparams.dmodel, 
+        #                                 nin=len(columns), 
+        #                                 pad_size=self.hparams.pad_size)
+        self.model = SummarizationModel2(d_model=self.hparams.dmodel, Ncol=len(columns))
+                                         
     
         self.classifier = Classifier(self.hparams.dmodel)
         

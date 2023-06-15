@@ -109,7 +109,7 @@ if __name__ == '__main__':
                         help='Transformer: num blocks.')
     parser.add_argument('--dmodel',
                         type=int,
-                        default=2,
+                        default=4,
                         help='Transformer: d_model.')
     parser.add_argument('--dff', type=int, default=64, help='Transformer: d_ff.')
     parser.add_argument('--transformer-act',

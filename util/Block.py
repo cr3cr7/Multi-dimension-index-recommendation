@@ -140,7 +140,7 @@ class BlockDataset(data.Dataset):
             return self.testQuery, self.testScanConds
     
     def __len__(self):
-        return 64
+        return 256
     
     def __getitem__(self, idx):
         # idx: index of the block
@@ -154,7 +154,8 @@ class BlockDataset(data.Dataset):
         # 2. Get the query
         #print(self.table.data)
         Queries, scan_conds = self.getQuery(rand=self.rand)
-        #print("qcols: ", scan_conds[0][0], "qrange: ", scan_conds[0][1])
+        print("qcols: ", scan_conds[0][0], "qrange: ", scan_conds[0][1])
+        assert 0
     
         result = self._is_scan(scan_conds[0][0], scan_conds[0][1])
        
@@ -209,3 +210,14 @@ class BlockDataset(data.Dataset):
         selected_indices = predicate_data.index
         # return predicate_data, self.tuples_df.loc[selected_indices]
         return torch.tensor(self.tuples_df.loc[selected_indices].values, dtype=torch.float32)
+    
+    def SampleBasedOnQuery(self, scan_conds):
+        new_df = pd.DataFrame(columns=self.cols)
+        for i in scan_conds:
+            cur_cols, cur_pred = i[0], i[1]
+            
+        # 生成new_df(原始数据)
+        
+        # Discretize
+        # Discretize(col, new_df)
+        

@@ -18,13 +18,13 @@ def load_callbacks():
     #     min_delta=0.001
     # ))
 
-    callbacks.append(plc.ModelCheckpoint(
-        monitor='scan',
-        filename='best-{epoch:02d}-{val_scan:.3f}',
-        save_top_k=1,
-        mode='min',
-        save_last=True
-    ))
+    # callbacks.append(plc.ModelCheckpoint(
+    #     monitor='scan',
+    #     filename='best-{epoch:02d}-{val_scan:.3f}',
+    #     save_top_k=1,
+    #     mode='min',
+    #     save_last=True
+    # ))
 
     if args.lr_scheduler:
         callbacks.append(plc.LearningRateMonitor(
@@ -46,13 +46,13 @@ def main(args):
         # args.ckpt_path = args.load_path
 
     # # If you want to change the logger's saving folder
-    logger = WandbLogger(name="dmv_tiny_SortOrder", save_dir=args.log_dir, project="debug")
-    # logger = False
+    # logger = WandbLogger(name="dmv_tiny_SortOrder", save_dir=args.log_dir, project="debug")
+    logger = False
     args.logger = logger
     args.callbacks = load_callbacks()
 
-    trainer = Trainer.from_argparse_args(args, accelerator='gpu', gpus=1, log_every_n_steps=1)
-    # trainer = Trainer.from_argparse_args(args, accelerator='gpu', gpus=1, fast_dev_run=True)
+    # trainer = Trainer.from_argparse_args(args, accelerator='gpu', gpus=1, log_every_n_steps=1)
+    trainer = Trainer.from_argparse_args(args, accelerator='gpu', gpus=1, fast_dev_run=True)
     trainer.fit(model)
 
 if __name__ == '__main__':
@@ -61,7 +61,7 @@ if __name__ == '__main__':
     parser.add_argument('--batch_size', default=512, type=int)
     parser.add_argument('--num_workers', default=8, type=int)
     parser.add_argument('--seed', default=1234, type=int)
-    parser.add_argument('--lr', default=5e-4, type=float)
+    parser.add_argument('--lr', default=1e-3, type=float)
 
     # LR Scheduler
     parser.add_argument('--lr_scheduler', choices=['step', 'cosine'], type=str)

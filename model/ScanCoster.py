@@ -51,8 +51,9 @@ class ScanCostTrainer(pl.LightningModule):
         em_query = self.embedding_model(query)
         query_embed = self.summarized_model(em_query)
 
-        data2id = self.ranking_model(table)
         table = self.embedding_model(table.to(torch.int))
+        data2id = self.ranking_model(table)
+        
 
         for id in range(self.block_nums):
             block_id, indices = self.filter_model(data2id, id)
@@ -107,7 +108,7 @@ class ScanCostTrainer(pl.LightningModule):
         # table, query_sample_data, target = batch
         em_query = self.embedding_model(query_sample_data)
         query_embed = self.summarized_model(em_query)
-
+        table = self.embedding_model(table.to(torch.int))
         data2id = self.ranking_model(table)
         scan = 0
         for id in range(self.block_nums):
@@ -135,8 +136,8 @@ class ScanCostTrainer(pl.LightningModule):
                 if is_scan:
                     scan += 1
         #self.log('loss', loss, on_step=True, on_epoch=True, prog_bar=True)
-        self.log_dict({'val_scan': scan}, on_step=True, on_epoch=True, prog_bar=True)
-        return scan
+        # self.log_dict({'val_scan': scan}, on_step=True, on_epoch=True, prog_bar=True)
+        # return scan
 
     def test_step(self, batch, batch_idx):
         table, query_sample_data, target = batch 
@@ -177,8 +178,9 @@ class ScanCostTrainer(pl.LightningModule):
         self.table_dataset = TableDataset(table)
 
     def load_model(self, columns):
+        # load state dict
         state_dict = torch.load(self.PATH)['state_dict']
-        print(state_dict.keys())
+        # print(state_dict.keys())
         from collections import OrderedDict
         new_state_dict = OrderedDict()
         for k, v in state_dict.items():
@@ -189,7 +191,7 @@ class ScanCostTrainer(pl.LightningModule):
             else:
                 new_state_dict[modelname][statename] = v
         
-        self.ranking_model = RankingModel(self.hparams.block_size, self.block_nums, len(self.cols))
+        self.ranking_model = RankingModel(self.hparams.block_size, self.block_nums, len(self.cols), self.hparams.dmodel)
 
         self.filter_model = FilterModel()
 
@@ -198,7 +200,6 @@ class ScanCostTrainer(pl.LightningModule):
                                         nin=len(columns), 
                                         pad_size=self.hparams.pad_size)
         self.summarized_model.load_state_dict(new_state_dict['model'])
-        print("load")
         self.classifier = Classifier(self.hparams.dmodel)
         self.classifier.load_state_dict(new_state_dict['classifier']) 
 
