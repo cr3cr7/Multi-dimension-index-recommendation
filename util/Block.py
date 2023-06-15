@@ -98,7 +98,7 @@ class BlockDataset(data.Dataset):
         # Generate test Queries
         self.testQuery, self.testScanConds =  QueryGeneration(1, self.table.data, self.cols)
         
-    def Discretize(self, col):
+    def Discretize(self, col, data=None):
         """Discretize values into its Column's bins.
 
         Args:
@@ -106,7 +106,7 @@ class BlockDataset(data.Dataset):
         Returns:
           col_data: discretized version; an np.ndarray of type np.int32.
         """
-        return common.Discretize(col)
+        return common.Discretize(col, data)
     
         
     def zero_except_id(self, tensor, df, id):
@@ -155,18 +155,20 @@ class BlockDataset(data.Dataset):
         #print(self.table.data)
         Queries, scan_conds = self.getQuery(rand=self.rand)
         print("qcols: ", scan_conds[0][0], "qrange: ", scan_conds[0][1])
-        assert 0
+        # assert 0
     
         result = self._is_scan(scan_conds[0][0], scan_conds[0][1])
        
         # 3. Get the sampled Query data
-        query_sample_data = self.Sample(self.table, Queries[0])
+        # query_sample_data = self.Sample(self.table, Queries[0])
+        query_sample_data = self.SampleBasedOnQuery(Queries, scan_conds)
 
         # Define the desired size of the padded tensor
         desired_size = (self.pad_size, len(self.cols))
 
         # Get the current size of the tensor
         current_size = query_sample_data.size()
+        print(current_size[0])
         block_current_size = new_block.size()
 
         if block_current_size[0] < desired_size[0]:
@@ -209,15 +211,50 @@ class BlockDataset(data.Dataset):
         predicate_data = train_data.data.loc[eval(query)]
         selected_indices = predicate_data.index
         # return predicate_data, self.tuples_df.loc[selected_indices]
-        return torch.tensor(self.tuples_df.loc[selected_indices].values, dtype=torch.float32)
+        return self.tuples_df.loc[selected_indices]
+        # return torch.tensor(self.tuples_df.loc[selected_indices].values, dtype=torch.float32)
     
-    def SampleBasedOnQuery(self, scan_conds):
+    def SampleBasedOnQuery(self, Queries, scan_conds):
         new_df = pd.DataFrame(columns=self.cols)
-        for i in scan_conds:
-            cur_cols, cur_pred = i[0], i[1]
-            
+        query_cols = scan_conds[0][0]
+        query_ranges = scan_conds[0][1]
+        i = 0
+        combinations = pow(2, len(query_cols))
         # 生成new_df(原始数据)
+        for cnt in range(combinations):
+            for idx, col in enumerate(self.cols):
+                if col not in query_cols:
+                    if random.randint(0, 1):
+                        new_df.loc[i, col] = self.table.data[col].min()
+                    else:
+                        new_df.loc[i, col] = self.table.data[col].max()
+                else:
+                    if random.randint(0, 1):
+                        new_df.loc[i, col] = query_ranges[idx][0]
+                    else:
+                        new_df.loc[i, col] = query_ranges[idx][1]
+            # new_df = new_df.drop_duplicates()
+            i = new_df.shape[0]
+            if i == self.pad_size:
+                break
+        
+        new_df = new_df.drop_duplicates()
+        # print(new_df.shape[0])
+        
+        # build column
+        # new_df_columns = common.build_columns(new_df, self.cols, self.table.type_casts, pg_cols=None) 
         
         # Discretize
-        # Discretize(col, new_df)
+        new_np = np.stack(
+            [common.Discretize(c, new_df[c.name]) for c in self.table.Columns()], axis=1)
         
+        new_discretized_df = pd.DataFrame(new_np, columns=self.cols)
+        
+        # padding from sample
+        if new_discretized_df.shape[0] < self.pad_size:
+            target = self.pad_size - new_discretized_df.shape[0] 
+            query_sample_data = self.Sample(self.table, Queries[0])
+
+            new_discretized_df.append(query_sample_data.sample(n= target if target < query_sample_data.shape[0] else query_sample_data.shape[0]))
+        
+        return torch.tensor(new_discretized_df.values, dtype=torch.float32) 

@@ -177,6 +177,7 @@ class CsvTable(Table):
         self.name = name
         self.pg_name = pg_name
         self.columnNmaes = cols
+        self.type_casts = type_casts
 
         if isinstance(filename_or_df, str):
             self.data = self._load(filename_or_df, cols, **kwargs)
@@ -352,3 +353,43 @@ def Discretize(col, data=None):
     assert (bin_ids >= 0).all(), (col, data, bin_ids)
     return bin_ids
 
+def build_columns(data, cols, type_casts, pg_cols):
+        """Example args:
+
+            cols = ['Model Year', 'Reg Valid Date', 'Reg Expiration Date']
+            type_casts = {'Model Year': int}
+
+        Returns: a list of Columns.
+        """
+        print('Parsing...', end=' ')
+        s = time.time()
+        for col, typ in type_casts.items():
+            if col not in data:
+                continue
+            if typ != np.datetime64:
+                data[col] = data[col].astype(typ, copy=False)
+            else:
+                # Both infer_datetime_format and cache are critical for perf.
+                data[col] = pd.to_datetime(data[col],
+                                           infer_datetime_format=True,
+                                           cache=True)
+
+        # Discretize & create Columns.
+        if cols is None:
+            cols = data.columns
+        columns = []
+        if pg_cols is None:
+            pg_cols = [None] * len(cols)
+        for c, p in zip(cols, pg_cols):
+            col = Column(c, pg_name=p)
+            col.Fill(data[c])
+
+            # dropna=False so that if NA/NaN is present in data,
+            # all_distinct_values will capture it.
+            #
+            # For numeric: np.nan
+            # For datetime: np.datetime64('NaT')
+            col.SetDistribution(data[c].value_counts(dropna=False).index.values)
+            columns.append(col)
+        print('done, took {:.1f}s'.format(time.time() - s))
+        return columns
