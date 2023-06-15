@@ -109,6 +109,14 @@ class SummaryTrainer(pl.LightningModule):
         self.rand = kargs['rand']
         self.configure_loss()
 
+    def _init_weights(self, module):
+        if isinstance(module, nn.Linear):
+            torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
+            if module.bias is not None:
+                torch.nn.init.zeros_(module.bias)
+        elif isinstance(module, nn.Embedding):
+            torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
+            
     def forward(self, query, block):
         em_query = self.embedding_model(query)
         query_embed = self.model(em_query)
@@ -185,6 +193,7 @@ class SummaryTrainer(pl.LightningModule):
             self.testset = BlockDataset(table, self.hparams.block_size, self.cols, self.hparams.pad_size, rand=self.rand)
 
         self.load_model(table.columns)
+        ReportModel(self.embedding_model)
         ReportModel(self.model)
         ReportModel(self.classifier)
 
@@ -198,6 +207,7 @@ class SummaryTrainer(pl.LightningModule):
         self.embedding_model = Embedding(d_model=self.hparams.dmodel, 
                                         nin=len(columns), 
                                         input_bins=[c.DistributionSize() for c in columns])
+        self.apply(self._init_weights)
 
     def train_dataloader(self):
         return DataLoader(self.trainset, batch_size=self.hparams.batch_size, num_workers=self.num_workers, shuffle=True)
