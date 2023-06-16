@@ -39,8 +39,6 @@ def main(args):
         # model = MInterface(**vars(args))
         model = SummaryTrainer(**vars(args))
         #　model = ScanCostTrainer(**vars(args))
-        model = SummaryTrainer(**vars(args))
-        # model = ScanCostTrainer(**vars(args))
     else:
         # model = MInterface(**vars(args))
         model = SummaryTrainer(**vars(args))
@@ -53,8 +51,8 @@ def main(args):
     args.logger = logger
     args.callbacks = load_callbacks()
 
-    trainer = Trainer.from_argparse_args(args, accelerator='gpu', gpus=1, log_every_n_steps=1, profiler="simple")
-    # trainer = Trainer.from_argparse_args(args, accelerator='gpu', gpus=1, fast_dev_run=True)
+    trainer = Trainer.from_argparse_args(args, accelerator='gpu', gpus=1, log_every_n_steps=1)
+    # trainer = Trainer.from_argparse_args(args, accelerator='gpu', gpus=1, fast_dev_run=True, profiler="simple")
     trainer.fit(model)
 
 if __name__ == '__main__':
@@ -109,7 +107,7 @@ if __name__ == '__main__':
                         help='Transformer: num blocks.')
     parser.add_argument('--dmodel',
                         type=int,
-                        default=4,
+                        default=1,
                         help='Transformer: d_model.')
     parser.add_argument('--dff', type=int, default=64, help='Transformer: d_ff.')
     parser.add_argument('--transformer-act',

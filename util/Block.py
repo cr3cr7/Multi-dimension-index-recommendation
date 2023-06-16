@@ -154,8 +154,6 @@ class BlockDataset(data.Dataset):
         # 2. Get the query
         #print(self.table.data)
         Queries, scan_conds = self.getQuery(rand=self.rand)
-        print("qcols: ", scan_conds[0][0], "qrange: ", scan_conds[0][1])
-        # assert 0
     
         result = self._is_scan(scan_conds[0][0], scan_conds[0][1])
        
@@ -168,7 +166,6 @@ class BlockDataset(data.Dataset):
 
         # Get the current size of the tensor
         current_size = query_sample_data.size()
-        print(current_size[0])
         block_current_size = new_block.size()
 
         if block_current_size[0] < desired_size[0]:
@@ -199,8 +196,7 @@ class BlockDataset(data.Dataset):
             if self.cols_min.get(i, False):
                 if i == 'Reg Valid Date' or i == 'Reg Expiration Date':
                     qranges[idx][0] = pd.to_datetime(qranges[idx][0])
-                    qranges[idx][1] = pd.to_datetime(qranges[idx][0])
-                #print("qcol: ", i)
+                    qranges[idx][1] = pd.to_datetime(qranges[idx][1])
                 if self.cols_min[i] > qranges[idx][1] or self.cols_max[i] < qranges[idx][0]:
                     return False
         return True
@@ -215,34 +211,28 @@ class BlockDataset(data.Dataset):
         # return torch.tensor(self.tuples_df.loc[selected_indices].values, dtype=torch.float32)
     
     def SampleBasedOnQuery(self, Queries, scan_conds):
-        new_df = pd.DataFrame(columns=self.cols)
+        # reserve pad_size dataframe memory
+        new_df = pd.DataFrame(index=range(self.pad_size), columns=self.cols)
         query_cols = scan_conds[0][0]
         query_ranges = scan_conds[0][1]
-        i = 0
-        combinations = pow(2, len(query_cols))
-        # 生成new_df(原始数据)
-        for cnt in range(combinations):
-            for idx, col in enumerate(self.cols):
-                if col not in query_cols:
-                    if random.randint(0, 1):
-                        new_df.loc[i, col] = self.table.data[col].min()
-                    else:
-                        new_df.loc[i, col] = self.table.data[col].max()
-                else:
-                    if random.randint(0, 1):
-                        new_df.loc[i, col] = query_ranges[idx][0]
-                    else:
-                        new_df.loc[i, col] = query_ranges[idx][1]
-            # new_df = new_df.drop_duplicates()
-            i = new_df.shape[0]
-            if i == self.pad_size:
-                break
         
+        new_query_ranges = []
+        for col in self.cols:
+            if col not in query_cols:
+                new_query_ranges.append([self.table.data[col].min(),
+                                         self.table.data[col].max()])
+            else:
+                idx = query_cols.index(col)
+                new_query_ranges.append(query_ranges[idx])
+        query_ranges = np.asarray(new_query_ranges)
+        # print(query_ranges)
+        for i in range(self.pad_size):
+            # Generate a random bit string to determine which values to use
+            bits = np.random.randint(2, size=len(query_cols))
+            values = np.where(bits, query_ranges[:, 0], query_ranges[:, 1])
+            new_df.loc[i] = values
+   
         new_df = new_df.drop_duplicates()
-        # print(new_df.shape[0])
-        
-        # build column
-        # new_df_columns = common.build_columns(new_df, self.cols, self.table.type_casts, pg_cols=None) 
         
         # Discretize
         new_np = np.stack(

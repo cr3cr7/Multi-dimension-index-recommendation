@@ -136,8 +136,8 @@ class ScanCostTrainer(pl.LightningModule):
                 if is_scan:
                     scan += 1
         #self.log('loss', loss, on_step=True, on_epoch=True, prog_bar=True)
-        # self.log_dict({'val_scan': scan}, on_step=True, on_epoch=True, prog_bar=True)
-        # return scan
+        self.log_dict({'val_scan': scan}, on_step=True, on_epoch=True, prog_bar=True)
+        return scan
 
     def test_step(self, batch, batch_idx):
         table, query_sample_data, target = batch 
