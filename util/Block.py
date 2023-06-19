@@ -21,8 +21,8 @@ def QueryGeneration(nums, train_data: pd.DataFrame, cols):
 
     for i in range(nums):
         rng = np.random.RandomState()
-        #query_cols_nums = random.randint(1, len(cols))
-        query_cols_nums = train_data.shape[1]
+        query_cols_nums = random.randint(1, len(cols))
+        #query_cols_nums = len(cols)
         qcols, qops, qvals, qranges = generateQuery.SampleTupleThenRandom(cols, query_cols_nums, rng, train_data)
         conditions = []
         for i in range(len(qcols)):
@@ -154,6 +154,7 @@ class BlockDataset(data.Dataset):
         # 2. Get the query
         #print(self.table.data)
         Queries, scan_conds = self.getQuery(rand=self.rand)
+        
     
         result = self._is_scan(scan_conds[0][0], scan_conds[0][1])
        
@@ -166,6 +167,7 @@ class BlockDataset(data.Dataset):
 
         # Get the current size of the tensor
         current_size = query_sample_data.size()
+        
         block_current_size = new_block.size()
 
         if block_current_size[0] < desired_size[0]:
@@ -241,10 +243,12 @@ class BlockDataset(data.Dataset):
         new_discretized_df = pd.DataFrame(new_np, columns=self.cols)
         
         # padding from sample
+        time3 = time.time()
         if new_discretized_df.shape[0] < self.pad_size:
             target = self.pad_size - new_discretized_df.shape[0] 
             query_sample_data = self.Sample(self.table, Queries[0])
 
             new_discretized_df.append(query_sample_data.sample(n= target if target < query_sample_data.shape[0] else query_sample_data.shape[0]))
-        
+        time4 = time.time()
+        print("padding time: ", time4 - time3)
         return torch.tensor(new_discretized_df.values, dtype=torch.float32) 

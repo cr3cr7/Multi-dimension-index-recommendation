@@ -7,7 +7,7 @@ def SampleTupleThenRandom(all_cols,
                           rng,
                           data,
                           return_col_idx=False):
-    s = data.iloc[rng.randint(0, 10)]
+    s = data.loc[rng.randint(0, 10), all_cols]
     vals = s.values
     
     # Giant hack for DMV.

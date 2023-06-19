@@ -22,8 +22,8 @@ def QueryGeneration(nums, train_data: pd.DataFrame, cols):
 
     for i in range(nums):
         rng = np.random.RandomState()
-        #query_cols_nums = random.randint(1, len(cols))
-        query_cols_nums = train_data.shape[1]
+        query_cols_nums = random.randint(1, len(cols))
+        #query_cols_nums = train_data.shape[1]
         qcols, qops, qvals, qranges = generateQuery.SampleTupleThenRandom(cols, query_cols_nums, rng, train_data)
         conditions = []
         for i in range(len(qcols)):
@@ -227,7 +227,7 @@ class BlockDataset(data.Dataset):
             if self.cols_min.get(i, False):
                 if i == 'Reg Valid Date' or i == 'Reg Expiration Date':
                     qranges[idx][0] = pd.to_datetime(qranges[idx][0])
-                    qranges[idx][1] = pd.to_datetime(qranges[idx][0])
+                    qranges[idx][1] = pd.to_datetime(qranges[idx][1])
                 #print("qcol: ", i)
                 if self.cols_min[i] > qranges[idx][1] or self.cols_max[i] < qranges[idx][0]:
                     return False
