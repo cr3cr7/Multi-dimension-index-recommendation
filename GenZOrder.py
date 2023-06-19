@@ -19,9 +19,11 @@ import math
 
 class GenZOrder(gym.Env):
     
-    def __init__(self, dataset, queryNum):
+    def __init__(self, dataset, queryNum, blockSize):
         self.table = self.load_data(dataset)
         self._build_col_bits(self.table)
+        self.block_size = blockSize
+        self.block_nums = math.ceil(self.table.data.shape[0] / self.block_size)
         self.testQuery, self.testScanConds = self.load_query(queryNum, self.table, self.colNames)
 
         self.action_space = spaces.Discrete(len(self.cols))
@@ -137,9 +139,19 @@ class GenZOrder(gym.Env):
         # action_list = [1, 1, 0, 0, 2, 2]
         action_list = self._convert_action_list(self.action_list)
         # print('new action list', action_list)
-        # z_value = interleave_columns(self.rows, action_list)
+        z_value = interleave_columns(self.rows, action_list)
+        self.table.data['zvalue'] = z_value
+        self.table.data.sort_values(by='zvalue', inplace=True)
+        self.table.data['id'] = np.arange(self.table.data.shape[0]) // self.block_size
+        scan_file = 0
+        for id in range(self.block_nums):
+            block = common.block(self.table, self.block_size, self.testScanConds[0][0], id)
+            # print(id, block.data)
+            if block.is_scan(self.testScanConds[0][0], self.testScanConds[0][1]):
+                scan_file += 1
         # print(z_value)
-        scan_file = 1
+        # scan_file = 1
+        print(scan_file)
         return -scan_file
     
     def _convert_action_list(self, action_list):
@@ -438,7 +450,7 @@ if __name__ == "__main__":
         # for the current env. In this example, we assume the env has a
         # helpful method we can rely on.
         return env.valid_action_mask()
-    env = GenZOrder('dmv-tiny', 1)
+    env = GenZOrder('dmv-tiny', 1, 20)
     env = ActionMasker(env, mask_fn)
     # print(env.reset())
     
@@ -455,17 +467,17 @@ if __name__ == "__main__":
         
     
     
-    # action_list = [2,3,0,1,4,5]
-    # # action_list = [0,1,2,3,4,5]
-    # data = np.array([['10', '10', '11'],
-    #                 ['11', '10', '01']])
+    """ action_list = [2,3,0,1,4,5]
+    # action_list = [0,1,2,3,4,5]
+    data = np.array([['10', '10', '11'],
+                    ['11', '10', '01']])
 
-    # data_1 = np.apply_along_axis(lambda d: int(d[0] + d[1] + d[2], 2), 1, data).astype(np.uint8)
-    # # print(bin(data_1[0]))
-    # # print(bin(data_1[1]))
+    data_1 = np.apply_along_axis(lambda d: int(d[0] + d[1] + d[2], 2), 1, data).astype(np.uint8)
+    # print(bin(data_1[0]))
+    # print(bin(data_1[1]))
     
-    # column_indices = [0, 1, 2]
+    column_indices = [0, 1, 2]
     
-    # output_values = interleave_columns(data_1, action_list)
-    # print(bin(output_values[0]))
-    # print(bin(output_values[1]))
+    output_values = interleave_columns(data_1, action_list)
+    print(bin(output_values[0]))
+    print(bin(output_values[1])) """

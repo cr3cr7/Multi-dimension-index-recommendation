@@ -284,9 +284,11 @@ class TableDataset(data.Dataset):
         return predicate_data, self.tuples_df.loc[selected_indices]
 
 # New Block Class
-class block(TableDataset):
-    def __init__(self, table, size, qcols, id):
-        super(block, self).__init__(table)
+class block():
+    def __init__(self, table:CsvTable, size, qcols, id):
+        #super(block, self).__init__(table)
+        super().__init__()
+        self.table = copy.deepcopy(table)
         self.blocksize = size
         self.id = id
         self.data = self._load()
@@ -297,16 +299,19 @@ class block(TableDataset):
             self.cols_max[i] = self.data[qcols[i]].max()
         
     def _load(self):
-        df = self.table.data.loc[self.table.data["id"] == self.id]
+        df = self.table.data.loc[self.table.data['id'] == self.id]
         return df
 
-    def _is_scan(self, qcols, qranges):
+    def is_scan(self, qcols, qranges):
         for i in range(len(qcols)):
+            if qcols[i] == 'Reg Valid Date' or qcols[i] == 'Reg Expiration Date':
+                qranges[i][0] = pd.to_datetime(qranges[i][0])
+                qranges[i][1] = pd.to_datetime(qranges[i][1])
             if self.cols_min[i] > qranges[i][1] or self.cols_max[i] < qranges[i][0]:
                 return False
         return True
 
-    def _get_data(self):
+    def get_data(self):
         return self.data
 
     
