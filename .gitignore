@@ -9,3 +9,4 @@ data/*
 model/LearnedSortOrder.py
 TestGeneration.py
 checkpoints
+reward.pkl
