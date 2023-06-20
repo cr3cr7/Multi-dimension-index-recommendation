@@ -146,6 +146,7 @@ class GenZOrder(gym.Env):
         action_list = self._convert_action_list(self.action_list)
         # print('new action list', action_list, len(action_list))
         z_value = interleave_string_columns(self.rows, action_list)
+        z_value = [int(x) for x in z_value]
         # z_value = interleave_columns(self.rows, action_list)
         self.table.data['zvalue'] = z_value
         self.table.data.sort_values(by='zvalue', inplace=True)
@@ -154,6 +155,7 @@ class GenZOrder(gym.Env):
         for id in range(self.block_nums):
             for i in range(len(self.testScanConds)):
                 block = common.block(self.table, self.block_size, self.testScanConds[i][0], id)
+                # print(id, block.get_data())
                 if block.is_scan(self.testScanConds[i][0], self.testScanConds[i][1]):
                     scan_file += 1
             # if block.is_scan(self.testScanConds[0][0], self.testScanConds[0][1]):
