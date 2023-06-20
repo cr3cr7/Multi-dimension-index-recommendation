@@ -15,6 +15,7 @@ import datasets
 from util.Block import QueryGeneration
 from common import Discretize
 import math
+from wandb.integration.sb3 import WandbCallback
 
 
 class GenZOrder(gym.Env):
@@ -30,6 +31,9 @@ class GenZOrder(gym.Env):
         self.observation_space = spaces.MultiDiscrete(np.array([2] * sum(self.col_bits.values())))
         self.PATH = os.path.dirname(os.path.abspath(__file__))
         self.action_list = []
+        # reward_file = os.path.join(self.PATH, 'reward.pkl')
+        # if os.path.exists(reward_file):
+        #     os.remove(reward_file)
         
     def load_data(self, dataset) ->common.CsvTable:
         if dataset == 'tpch':
@@ -67,7 +71,7 @@ class GenZOrder(gym.Env):
                 self.col_bits[idx] = bit_number
                 self.state[idx] = np.zeros(self.col_bits[idx], dtype=np.int32)
                 self.tuples_np_orignal.append(Discretize(col))
-                self.tuples_np.append([format(value, f'0{bit_number}b') for value in Discretize(col)])   
+                self.tuples_np.append([format(value - 1, f'0{bit_number}b') for value in Discretize(col)])   
                 idx += 1    
         self.tuples_np = np.stack(self.tuples_np, axis=1)
         self.tuples_np_orignal = np.stack(self.tuples_np_orignal, axis=1)
@@ -75,8 +79,10 @@ class GenZOrder(gym.Env):
         # 01 00 10 -> 010010
         self.rows = []
         for i in range(len(self.tuples_np)):
-            self.rows.append(int(''.join(self.tuples_np[i]), 2))
-        self.rows = np.asarray(self.rows).astype(np.uint8)
+            # self.rows.append(int(''.join(self.tuples_np[i]), 2))
+            self.rows.append(''.join(self.tuples_np[i]))
+        # self.rows = np.asarray(self.rows).astype(np.uint8)
+        # print('rows:', self.rows)
 
         
     def observation(self):
@@ -138,20 +144,23 @@ class GenZOrder(gym.Env):
         # Generate Z order
         # action_list = [1, 1, 0, 0, 2, 2]
         action_list = self._convert_action_list(self.action_list)
-        # print('new action list', action_list)
-        z_value = interleave_columns(self.rows, action_list)
+        # print('new action list', action_list, len(action_list))
+        z_value = interleave_string_columns(self.rows, action_list)
+        # z_value = interleave_columns(self.rows, action_list)
         self.table.data['zvalue'] = z_value
         self.table.data.sort_values(by='zvalue', inplace=True)
         self.table.data['id'] = np.arange(self.table.data.shape[0]) // self.block_size
         scan_file = 0
         for id in range(self.block_nums):
-            block = common.block(self.table, self.block_size, self.testScanConds[0][0], id)
-            # print(id, block.data)
-            if block.is_scan(self.testScanConds[0][0], self.testScanConds[0][1]):
-                scan_file += 1
+            for i in range(len(self.testScanConds)):
+                block = common.block(self.table, self.block_size, self.testScanConds[i][0], id)
+                if block.is_scan(self.testScanConds[i][0], self.testScanConds[i][1]):
+                    scan_file += 1
+            # if block.is_scan(self.testScanConds[0][0], self.testScanConds[0][1]):
+            #     scan_file += 1
         # print(z_value)
         # scan_file = 1
-        print(scan_file)
+        # print(scan_file)
         return -scan_file
     
     def _convert_action_list(self, action_list):
@@ -162,6 +171,7 @@ class GenZOrder(gym.Env):
         for action in action_list:
             new_action_list.append(start_positions[action])
             start_positions[action] += 1
+        assert len(new_action_list) == len(set(new_action_list))
         return new_action_list
 
 
@@ -386,6 +396,13 @@ class SelColEnv(gym.Env):
 
 
 
+def interleave_string_columns(data, action_list):
+    result = np.empty(len(data), dtype='U48')
+    for idx, one_row in enumerate(data):
+        result[idx] = int(''.join([one_row[i] for i in action_list]), 2)
+    return result
+        
+
 def interleave_columns(data, action_list):
     # Define a lookup table that maps column indices to data arrays
     # lookup = {i: data[:, i] for i in range(data.shape[1])}
@@ -445,22 +462,53 @@ if __name__ == "__main__":
     from sb3_contrib.ppo_mask import MaskablePPO
     from sb3_contrib.common.wrappers import ActionMasker
     from sb3_contrib.common.maskable.policies import MaskableActorCriticPolicy
+    from stable_baselines3.common.monitor import Monitor
+    import wandb
+    from stable_baselines3.common.env_util import make_vec_env
+    
     def mask_fn(env: gym.Env) -> np.ndarray:
         # Do whatever you'd like in this function to return the action mask
         # for the current env. In this example, we assume the env has a
         # helpful method we can rely on.
         return env.valid_action_mask()
-    env = GenZOrder('dmv-tiny', 1, 20)
-    env = ActionMasker(env, mask_fn)
+    
+    def make_env(): 
+        env = GenZOrder('dmv-tiny', 20, 20)
+        env = ActionMasker(env, mask_fn)
+        env = Monitor(env)
+        return env
+    
+    # async_env = gym.vector.AsyncVectorEnv([ lambda: make_env(),
+    #                                         lambda: make_env(),
+    #                                         lambda: make_env(),
+    #                                         lambda: make_env()
+    #                                     ])
+    async_env = make_env()
     # print(env.reset())
     
-    model = MaskablePPO(MaskableActorCriticPolicy, env, verbose=1)
-    model.learn(total_timesteps=500)
- 
+    config = {
+    "policy_type": "MaskableActorCriticPolicy",
+    "total_timesteps": 2048 * 10000,
+    "env_name": "Zorder",
+    # "WandBCallback": None,
+    # "tensorboard_log": None
+    }
+    run = wandb.init(
+        project="sb3",
+        config=config,
+        sync_tensorboard=True,  # auto-upload sb3's tensorboard metrics
+        # monitor_gym=True,  # auto-upload the videos of agents playing the game
+        save_code=True,  # optional
+    )
+    
+    model = MaskablePPO(MaskableActorCriticPolicy, async_env, verbose=1, tensorboard_log=f"lightning_logs/{run.id}")
+    model.learn(total_timesteps=config['total_timesteps'], callback=WandbCallback(gradient_save_freq=100, verbose=2))
+    run.finish()
+    
     # env.reset()
     # for i in range(100):
     #     action = env.action_space.sample()
-    #     print(action)
+    #     # print(action)
     #     observation, reward, done, _ = env.step(action)
     #     if done:
     #         break
