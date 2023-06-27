@@ -22,8 +22,10 @@ def QueryGeneration(nums, train_data: pd.DataFrame, cols):
 
     for i in range(nums):
         rng = np.random.RandomState()
-        query_cols_nums = random.randint(1, len(cols))
-        #query_cols_nums = train_data.shape[1]
+        # Choose Number of Columns 
+        # query_cols_nums = random.randint(1, len(cols))
+        query_cols_nums = train_data.shape[1]
+        
         qcols, qops, qvals, qranges = generateQuery.SampleTupleThenRandom(cols, query_cols_nums, rng, train_data)
         conditions = []
         for i in range(len(qcols)):
@@ -210,6 +212,7 @@ class BlockDataset(data.Dataset):
             
             query_sample_data = query_sample_data.narrow(0, start_idx, desired_size[0])
         
+        # FIXME: Padding Columns Number
         # block(batch, card, cols)  query(batch, card, cols)  result(batch, 1)
         item = {'table': self.orig_tuples.to(torch.float), \
                 'query': query_sample_data.to(torch.int), \

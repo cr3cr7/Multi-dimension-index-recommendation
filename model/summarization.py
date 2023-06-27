@@ -96,8 +96,27 @@ class SummarizationModel2(nn.Module):
         # print(x.shape)
         return x
     
-
 class Classifier(nn.Module):
+    def __init__(self, d_model):
+        super().__init__()
+        self.classifier = nn.Sequential(
+            nn.Linear(d_model, 1),
+            nn.Sigmoid()
+        )
+    
+    def forward(self, block_embedding, query_embedding):  
+        """Element-wise multiplication followed by a linear layer and a sigmoid"""
+        # block_embedding: [batch_size, block_num, d_model]
+        # query_embedding: [batch_size, query_num, d_model]
+        # output: [batch_size, block_num, query_num]
+        
+        # element-wise multiplication
+        elementwise_product = block_embedding * query_embedding
+        # apply linear layer and sigmoid
+        output = self.classifier(elementwise_product)
+        return output.view(output.shape[0], -1)
+
+class Classifier_v1(nn.Module):
     def __init__(self, d_model):
         super().__init__()
         self.classifier = nn.Sequential(

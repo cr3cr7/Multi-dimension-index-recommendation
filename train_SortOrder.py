@@ -52,7 +52,9 @@ def main(args):
     args.callbacks = load_callbacks()
 
     # trainer = Trainer.from_argparse_args(args, accelerator='gpu', gpus=1, log_every_n_steps=1)
-    trainer = Trainer.from_argparse_args(args, accelerator='gpu', gpus=1, fast_dev_run=True)
+    # trainer = Trainer.from_argparse_args(args, accelerator='gpu', devices=[2], fast_dev_run=True)
+    trainer = Trainer.from_argparse_args(args, accelerator='cpu', log_every_n_steps=1)
+    # trainer = Trainer.from_argparse_args(args, accelerator='cpu', fast_dev_run=True)
     trainer.fit(model)
 
 if __name__ == '__main__':

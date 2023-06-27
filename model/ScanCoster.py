@@ -13,7 +13,7 @@ from util.NewBlock import RandomBlockGeneration, BlockDataset
 from model.model_interface import ReportModel
 import torch.nn.functional as F
 from sklearn.metrics import f1_score, accuracy_score
-from model.generation import RankingModel, FilterModel
+from model.generation import RankingModel, FilterModel, RankingModel_v2, FilterModel_v2
 import math
 from model.summarization import FeedFoward, SummarizationModel, Classifier, Embedding, SummaryTrainer
 import pandas as pd
@@ -53,12 +53,12 @@ class ScanCostTrainer(pl.LightningModule):
 
         table = self.embedding_model(table.to(torch.int))
         data2id = self.ranking_model(table)
-        
 
         for id in range(self.block_nums):
             block_id, indices = self.filter_model(data2id, id)
-            
-            block = table * block_id.unsqueeze(-1)
+            # torch.Size([100, 100, 15, 2]) torch.Size([100, 100, 1]) torch.Size([100, 20])
+            # print(table.shape, block_id.shape, indices.shape)
+            block = table * block_id
 
             # (batch_size, block_size, col, dmodel)
             selected_block = torch.gather(block, 1, indices.unsqueeze(-1).expand(-1, -1, block.size(2)).unsqueeze(-1).expand(-1, -1, -1, block.size(-1)))
@@ -191,9 +191,11 @@ class ScanCostTrainer(pl.LightningModule):
             else:
                 new_state_dict[modelname][statename] = v
         
-        self.ranking_model = RankingModel(self.hparams.block_size, self.block_nums, len(self.cols), self.hparams.dmodel)
+        # self.ranking_model = RankingModel(self.hparams.block_size, self.block_nums, len(self.cols), self.hparams.dmodel)
+        self.ranking_model = RankingModel_v2(self.hparams.block_size, self.block_nums, len(self.cols), self.hparams.dmodel)
 
-        self.filter_model = FilterModel()
+        # self.filter_model = FilterModel()
+        self.filter_model = FilterModel_v2()
 
         # Freeze model
         self.summarized_model = SummarizationModel(d_model=self.hparams.dmodel, 

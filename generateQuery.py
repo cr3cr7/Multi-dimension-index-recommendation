@@ -15,7 +15,7 @@ def SampleTupleThenRandom(all_cols,
 
     idxs = rng.choice(len(all_cols), replace=False, size=num_filters)
     cols = np.take(all_cols, idxs)
-    cols.tolist()
+    cols = cols.tolist()
 
     # If dom size >= 10, okay to place a range filter.
     # Otherwise, low domain size columns should be queried with equality.

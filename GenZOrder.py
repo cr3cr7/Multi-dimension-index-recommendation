@@ -20,7 +20,7 @@ from wandb.integration.sb3 import WandbCallback
 
 class GenZOrder(gym.Env):
     
-    def __init__(self, dataset, queryNum, blockSize):
+    def __init__(self, dataset='dmv-tiny', queryNum=20, blockSize=20):
         self.table = self.load_data(dataset)
         self._build_col_bits(self.table)
         self.block_size = blockSize
@@ -460,7 +460,23 @@ def concatenate_columns(data, column_indices):
     return output_values
 
 
+def register_env():
+    from gym.envs.registration import register
+
+    environments = [['GenZOrder', 'v0']]
+
+    for environment in environments:
+        register(
+            id='{}-{}'.format(environment[0], environment[1]),
+            entry_point='GenZOrder:{}'.format(environment[0]),
+            nondeterministic=True
+    )
+
+
 if __name__ == "__main__":
+    # TODO: implementation of maskable ppo in ray RLlib
+    from ray.rllib.models.torch.torch_modelv2 import TorchModelV2
+    
     from sb3_contrib.ppo_mask import MaskablePPO
     from sb3_contrib.common.wrappers import ActionMasker
     from sb3_contrib.common.maskable.policies import MaskableActorCriticPolicy
@@ -480,12 +496,17 @@ if __name__ == "__main__":
         env = Monitor(env)
         return env
     
-    # async_env = gym.vector.AsyncVectorEnv([ lambda: make_env(),
-    #                                         lambda: make_env(),
-    #                                         lambda: make_env(),
-    #                                         lambda: make_env()
-    #                                     ])
-    async_env = make_env()
+    register_env()
+    # env = gym.make("GenZOrder-v0")
+
+    async_env = gym.vector.AsyncVectorEnv([ lambda: make_env(),
+                                            lambda: make_env(),
+                                            lambda: make_env(),
+                                            lambda: make_env()
+                                        ])
+    # async_env = make_env()
+    # async_env = make_vec_env('GenZOrder-v0', n_envs=1)
+    # async_env = ActionMasker(async_env, mask_fn)
     # print(env.reset())
     
     config = {
@@ -495,16 +516,18 @@ if __name__ == "__main__":
     # "WandBCallback": None,
     # "tensorboard_log": None
     }
-    run = wandb.init(
-        project="sb3",
-        config=config,
-        sync_tensorboard=True,  # auto-upload sb3's tensorboard metrics
-        # monitor_gym=True,  # auto-upload the videos of agents playing the game
-        save_code=True,  # optional
-    )
+    # run = wandb.init(
+    #     project="sb3",
+    #     config=config,
+    #     sync_tensorboard=True,  # auto-upload sb3's tensorboard metrics
+    #     # monitor_gym=True,  # auto-upload the videos of agents playing the game
+    #     save_code=True,  # optional
+    # )
     
-    model = MaskablePPO(MaskableActorCriticPolicy, async_env, verbose=1, tensorboard_log=f"lightning_logs/{run.id}")
-    model.learn(total_timesteps=config['total_timesteps'], callback=WandbCallback(gradient_save_freq=100, verbose=2))
+    # callback=WandbCallback(gradient_save_freq=100, verbose=2)
+    # tensorboard_log=f"lightning_logs/{run.id}"
+    model = MaskablePPO(MaskableActorCriticPolicy, async_env, verbose=1)
+    model.learn(total_timesteps=config['total_timesteps'])
     run.finish()
     
     # env.reset()

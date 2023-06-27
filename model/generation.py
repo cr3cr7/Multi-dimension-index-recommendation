@@ -11,6 +11,7 @@ from model.model_interface import ReportModel
 import torch.nn.functional as F
 from sklearn.metrics import f1_score, accuracy_score
 import math
+import torchsort
 
 class RankingModel(nn.Module):
     def __init__(self, BlockSize, BlockNum, col_num, dmodel):
@@ -35,7 +36,7 @@ class RankingModel(nn.Module):
         p2ss = []
         for one_batch in table:
             count = torch.zeros((1, self.BlockNum), requires_grad=True)
-            count = count.to(device=torch.device('cuda' if torch.cuda.is_available() else 'cpu'))
+            # count = count.to(device=torch.device('cuda' if torch.cuda.is_available() else 'cpu'))
             p1s = []
             p2s = []
             for row in one_batch:
@@ -58,8 +59,67 @@ class RankingModel(nn.Module):
 
     def update_mask(self, count):
         mask = torch.where(count >= self.capacity, torch.zeros_like(count), torch.ones_like(count))
-        mask = mask.to(device=torch.device('cuda' if torch.cuda.is_available() else 'cpu'))
+        # mask = mask.to(device=torch.device('cuda' if torch.cuda.is_available() else 'cpu'))
         return mask
+    
+class RankingModel_v2(nn.Module):
+    def __init__(self, BlockSize, BlockNum, col_num, dmodel):
+        super(RankingModel_v2, self).__init__()
+        self.capacity = BlockSize
+        self.BlockNum = BlockNum
+        self.col_num = col_num
+        self.dmodel = dmodel
+        self.MLP = nn.Sequential(
+            nn.Linear(col_num * dmodel, 32),
+            nn.ReLU(),
+            nn.Linear(32, 1),
+            # nn.Sigmoid()
+            # nn.ReLU()
+        )
+        # self.ln1 = nn.LayerNorm(100)
+        self.apply(self._init_weights)
+    
+    
+    def forward(self, table):
+        rows = table.shape[1]
+        table = table.reshape(-1, rows, self.col_num * self.dmodel)
+        scores = self.MLP(table).reshape(-1, rows)
+        # scores = nn.functional.softmax(scores, dim=1)
+        
+        # TODO: SoftRank很容易受到Score相对大小的影响，需要进行归一化
+        # TODO: MinMax相同做特殊处理
+        # TODO: 排序不均匀，导致Block Size不同
+        min_vals = torch.min(scores, dim=1, keepdim=True)[0]
+        max_vals = torch.max(scores, dim=1, keepdim=True)[0]
+        scaled_scores = ((scores - min_vals) / (max_vals - min_vals + 0.1)) * 100
+        # print(scaled_scores[0])
+        ranks = torchsort.soft_rank(scaled_scores, regularization="kl")
+        # print(ranks[0])
+        # ranks_1 = []
+        # for score in scores:
+        #     scaled_tensor = score.reshape(-1, rows)
+        #     scaled_tensor = (scaled_tensor - scaled_tensor.min()) / (scaled_tensor.max() - scaled_tensor.min()) * 100
+        #     rank = torchsort.soft_rank(scaled_tensor, regularization="kl")
+        #     print(rank)
+        #     print(ranks[0])
+        #     assert rank == ranks[0]
+
+        # Generate Block ID
+        other = ranks.detach() % self.capacity
+        ranks = (ranks - other) / self.capacity
+        # print("RANKS")
+        # print(ranks[0])
+        # Block 0 for padding
+        ranks = ranks + 1
+        return ranks.reshape(-1, rows, 1)
+    
+    def _init_weights(self, module):
+        if isinstance(module, nn.Linear):
+            torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
+            if module.bias is not None:
+                torch.nn.init.zeros_(module.bias)
+        elif isinstance(module, nn.Embedding):
+            torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
     
 class FilterModel(nn.Module):
     def __init__(self):
@@ -80,12 +140,41 @@ class FilterModel(nn.Module):
             
             block_id.append(selected_block)
             indices.append(rows)
-        return torch.stack(block_id), torch.stack(indices)
+        return torch.stack(block_id).unsqueeze(-1), torch.stack(indices)
         """ table = one_hot.clone().detach()
         table[:,:,id] = 0
         table_diff = one_hot - table
         selected_block = torch.sum(table_diff, dim=2, keepdim=True)
         return selected_block """
+
+class FilterModel_v2(nn.Module):
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, block_id, target_id):
+        """
+        block_id: [batch_size, rows, 1]
+        target_id: int
+        """
+        # Zero is for padding
+        target_id += 1
+        block_id = block_id.squeeze(-1)  # eliminate last dimension
+        block_id_cp = block_id.clone().detach()
+        block_id_cp[block_id_cp == target_id] = 0
+        block_diff = (block_id - block_id_cp) / target_id
+        indices = []
+        # TODO: 这里nonzero是否准确，是否优化？
+        for i in range(block_diff.shape[0]):
+            rows = block_diff[i].nonzero().reshape(-1)
+            indices.append(rows)
+            # rows = rows.reshape(100, -1)
+        rows = torch.stack(indices)
+        # TODO:Padding rows to (100, 20), Block Size < 20做特殊处理
+        if rows.shape[1] < 20:
+            rows = torch.cat([rows, torch.zeros(100, 20 - rows.shape[1], dtype=torch.long)], dim=1)
+        return block_diff.unsqueeze(-1).unsqueeze(-1), rows
+
+        
 
 class GenerationTrainer(pl.LightningModule):
     def __init__(self, num_workers=8, **kargs):
