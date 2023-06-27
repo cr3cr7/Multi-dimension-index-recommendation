@@ -87,7 +87,7 @@ class RankingModel_v2(nn.Module):
         # scores = nn.functional.softmax(scores, dim=1)
         
         # TODO: SoftRank很容易受到Score相对大小的影响，需要进行归一化
-        # TODO: MinMax相同做特殊处理
+        # TODO: MinMax相同做特殊处理, 会有大量block id相同，应该怎么处理？
         # TODO: 排序不均匀，导致Block Size不同
         min_vals = torch.min(scores, dim=1, keepdim=True)[0]
         max_vals = torch.max(scores, dim=1, keepdim=True)[0]
