@@ -1,5 +1,6 @@
 __pycache__
 .vscode
+datasets/
 datasets/dmv-2000queries-oracle-cards-seed1234.csv
 datasets/Vehicle__Snowmobile__and_Boat_Registrations.csv
 datasets/lineitem.csv

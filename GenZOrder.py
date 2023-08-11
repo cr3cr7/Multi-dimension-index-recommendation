@@ -498,12 +498,14 @@ if __name__ == "__main__":
     
     register_env()
     # env = gym.make("GenZOrder-v0")
-
-    async_env = gym.vector.AsyncVectorEnv([ lambda: make_env(),
-                                            lambda: make_env(),
-                                            lambda: make_env(),
-                                            lambda: make_env()
-                                        ])
+    env = GenZOrder('dmv-tiny', 20, 20)
+    env = ActionMasker(env, mask_fn)
+    env = Monitor(env)
+    # async_env = gym.vector.AsyncVectorEnv([ lambda: make_env(),
+    #                                         lambda: make_env(),
+    #                                         lambda: make_env(),
+    #                                         lambda: make_env()
+    #                                     ])
     # async_env = make_env()
     # async_env = make_vec_env('GenZOrder-v0', n_envs=1)
     # async_env = ActionMasker(async_env, mask_fn)
@@ -516,18 +518,18 @@ if __name__ == "__main__":
     # "WandBCallback": None,
     # "tensorboard_log": None
     }
-    # run = wandb.init(
-    #     project="sb3",
-    #     config=config,
-    #     sync_tensorboard=True,  # auto-upload sb3's tensorboard metrics
-    #     # monitor_gym=True,  # auto-upload the videos of agents playing the game
-    #     save_code=True,  # optional
-    # )
+    run = wandb.init(
+        project="sb3",
+        config=config,
+        sync_tensorboard=True,  # auto-upload sb3's tensorboard metrics
+        # monitor_gym=True,  # auto-upload the videos of agents playing the game
+        save_code=True,  # optional
+    )
     
     # callback=WandbCallback(gradient_save_freq=100, verbose=2)
     # tensorboard_log=f"lightning_logs/{run.id}"
-    model = MaskablePPO(MaskableActorCriticPolicy, async_env, verbose=1)
-    model.learn(total_timesteps=config['total_timesteps'])
+    model = MaskablePPO(MaskableActorCriticPolicy, env, verbose=1,tensorboard_log=f"lightning_logs/{run.id}")
+    model.learn(total_timesteps=config['total_timesteps'], callback=WandbCallback(gradient_save_freq=100, verbose=2))
     run.finish()
     
     # env.reset()

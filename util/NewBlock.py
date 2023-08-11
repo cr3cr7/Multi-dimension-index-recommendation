@@ -12,6 +12,8 @@ import pandas as pd
 import torch
 import torch.nn.functional as F
 from torch import nn
+import os
+import pickle
 
 # Dataset Index后的数据 -> [Indexed Dataset]
 # Trainning Query Generation -> [Training set], [统计一下每个查询扫描block数 Natural Order]
@@ -24,7 +26,8 @@ def QueryGeneration(nums, train_data: pd.DataFrame, cols):
         rng = np.random.RandomState()
         # Choose Number of Columns 
         # query_cols_nums = random.randint(1, len(cols))
-        query_cols_nums = train_data.shape[1]
+        # query_cols_nums = train_data.shape[1]
+        query_cols_nums = 10
         
         qcols, qops, qvals, qranges = generateQuery.SampleTupleThenRandom(cols, query_cols_nums, rng, train_data)
         conditions = []
@@ -37,6 +40,7 @@ def QueryGeneration(nums, train_data: pd.DataFrame, cols):
                 qvals[i] = "'" + str(qvals[i]) + "'"
         for qcol, qop, qval in zip(qcols, qops, qvals):
             conditions.append(f"(self.table.data['{qcol}'] {qop} {qval})")
+            # conditions.append(f"(self.table['{qcol}'] {qop} {qval})")
         #print(conditions)
         predicate = " & ".join(conditions)
         Queries.append(predicate)
@@ -94,14 +98,25 @@ class BlockDataset(data.Dataset):
             self.orig_tuples_np.astype(np.float32, copy=False))
         self.tuples_df = pd.DataFrame(self.orig_tuples_np)
         self.tuples_df.columns = self.table.ColumnNames()
-
+        # self.tuples_df.to_csv(f"datasets/{table.name}_tuples_df.csv", index=False)
         print('done, took {:.1f}s'.format(time.time() - s))
         
         self.cols_min = {}
         self.cols_max = {}
         
         # Generate test Queries
-        self.testQuery, self.testScanConds =  QueryGeneration(100, self.table.data, self.cols)
+        # save_path = "./datasets/scan_condation_1000.pkl"
+        cols_num = len(cols)
+        save_path = f"./datasets/scan_condation_{cols_num}Cols.pkl"
+        if not os.path.exists(save_path):
+            self.testQuery, self.testScanConds = QueryGeneration(100, self.table.data.loc[:, cols], self.cols)
+            # pickle.dump(scan_conds, open(save_path, "wb"))
+        else:
+            print("*"*50 + "Load scan_conds from file! " + "*"*50)
+            self.testScanConds = pickle.load(open(save_path, "rb"))
+            self.testQuery = pickle.load(open(f"./datasets/Queries_{cols_num}Cols.pkl", "rb"))
+            
+        # self.testQuery, self.testScanConds =  QueryGeneration(100, self.table.data, self.cols)
         self.sample_data = []
         for query in self.testQuery:
             self.sample_data.append(self.Sample(self.table, query))
@@ -244,6 +259,43 @@ class BlockDataset(data.Dataset):
         # return predicate_data, self.tuples_df.loc[selected_indices]
         return torch.tensor(self.tuples_df.loc[selected_indices].values, dtype=torch.float32)
     
+    def SampleBasedOnQuery(self, Queries, scan_conds):
+        # reserve pad_size dataframe memory
+        new_df = pd.DataFrame(index=range(self.pad_size), columns=self.cols)
+        query_cols = scan_conds[0][0]
+        query_ranges = scan_conds[0][1]
+        
+        new_query_ranges = []
+        for col in self.cols:
+            if col not in query_cols:
+                new_query_ranges.append([self.table.data[col].min(),
+                                         self.table.data[col].max()])
+            else:
+                idx = query_cols.index(col)
+                new_query_ranges.append(query_ranges[idx])
+        query_ranges = np.asarray(new_query_ranges)
+        # print(query_ranges)
+        for i in range(self.pad_size):
+            # Generate a random bit string to determine which values to use
+            bits = np.random.randint(2, size=len(query_cols))
+            values = np.where(bits, query_ranges[:, 0], query_ranges[:, 1])
+            new_df.loc[i] = values
+   
+        new_df = new_df.drop_duplicates()
+        
+        # Discretize
+        new_np = np.stack(
+            [common.Discretize(c, new_df[c.name]) for c in self.table.Columns()], axis=1)
+        
+        new_discretized_df = pd.DataFrame(new_np, columns=self.cols)
+        
+        # padding from sample
+        if new_discretized_df.shape[0] < self.pad_size:
+            target = self.pad_size - new_discretized_df.shape[0] 
+            query_sample_data = self.Sample(self.table, Queries[0])
+            new_discretized_df.append(query_sample_data.sample(n= target if target < query_sample_data.shape[0] else query_sample_data.shape[0]))
+        return torch.tensor(new_discretized_df.values, dtype=torch.float32) 
+    
     # Block Selection Number (Query) -> [Block Scan Number]
     # 统计该查询需要扫描的数量
     def BlocksScanNumber(self, qcols, qranges, train_data, block_size):
@@ -254,3 +306,177 @@ class BlockDataset(data.Dataset):
             if Block._is_scan(qcols, qranges):
                 scan_blocks += 1
         return scan_blocks
+    
+    
+class BlockDataset_V2(data.Dataset):
+    """Wrap a Block and yield one block as Pytorch Dataset element."""
+    
+    def __init__(self, table: common.CsvTable, 
+                       block_size: int, 
+                       cols: list,
+                       pad_size: int,
+                       rand: bool = False
+                       ):
+        self.table = copy.deepcopy(table)
+        # self.block_size = block_size
+        self.cols = cols
+        self.rand = rand
+        self.pad_size = pad_size
+        assert self.pad_size > 0 and self.pad_size <= len(self.table.data)
+        
+        s = time.time()
+        # [cardianlity, num cols].
+        self.orig_tuples_np = np.stack(
+            [self.Discretize(c) for c in self.table.Columns()], axis=1)
+        self.orig_tuples = torch.as_tensor(
+            self.orig_tuples_np.astype(np.float32, copy=False))
+        self.tuples_df = pd.DataFrame(self.orig_tuples_np)
+        self.tuples_df.columns = self.table.ColumnNames()
+        # self.tuples_df.to_csv(f"datasets/{table.name}_tuples_df.csv", index=False)
+        print('done, took {:.1f}s'.format(time.time() - s))
+        
+        self.cols_min = {}
+        self.cols_max = {}
+        
+        # Generate test Queries
+        # save_path = "./datasets/scan_condation_1000.pkl"
+        cols_num = len(cols)
+        save_path = f"./datasets/scan_condation_{cols_num}Cols.pkl"
+        if not os.path.exists(save_path):
+            self.testQuery, self.testScanConds = QueryGeneration(100, self.table.data.loc[:, cols], self.cols)
+            # pickle.dump(scan_conds, open(save_path, "wb"))
+        else:
+            print("*"*50 + f"Load scan_conds:{save_path} from file! " + "*"*50)
+            self.testScanConds = pickle.load(open(save_path, "rb"))
+            self.testQuery = pickle.load(open(f"./datasets/Queries_{cols_num}Cols.pkl", "rb"))
+
+
+    def Discretize(self, col):
+        """Discretize values into its Column's bins.
+
+        Args:
+          col: the Column.
+        Returns:
+          col_data: discretized version; an np.ndarray of type np.int32.
+        """
+        return common.Discretize(col)
+    
+        
+    def zero_except_id(self, tensor, df, id):
+        # tensor: PyTorch tensor
+        # id: value to match in first column
+        #tensor[tensor[:, 0] != id] = 0
+        tensor = tensor[tensor[:, 0] == id] 
+        indexed_df = df[df["id"] == id]
+        self.collect_cols_min_max(indexed_df)
+        return tensor[:, 1:]
+
+    def collect_cols_min_max(self, df):
+        for i in self.cols:
+            self.cols_min[i] = df[i].min()
+            self.cols_max[i] = df[i].max()
+    
+    def LoadBlockWithID(self, id):
+        one_hot = self.data_distribution.clone()
+        one_hot[:, id] = 0
+        selected_block = self.data_distribution - one_hot
+        selected_block = selected_block[:, id]
+        indices = selected_block.nonzero()
+        return indices, torch.index_select(self.orig_tuples, 0, indices)
+    
+    def getQuery(self, rand: bool):
+        if rand:
+            Queries, scan_conds = QueryGeneration(1, self.table.data, self.cols)
+            return Queries, scan_conds
+        else:
+            return self.testQuery, self.testScanConds
+
+    def __len__(self):
+        return len(self.testQuery)
+    
+    def __getitem__(self, idx):     
+        # 2. Get the query
+        #print(self.table.data)
+        Queries, scan_conds = self.getQuery(rand=self.rand)
+        # print("qcols: ", scan_conds[0][0], "qrange: ", scan_conds[0][1])
+        
+        # Define the desired size of the padded tensor
+        desired_size = (self.pad_size, len(self.cols))
+
+        # Sample the Fixed-size Table
+        # if (self.orig_tuples.shape[0] - self.pad_size) != 0:
+        #     ix = torch.randint(0, self.orig_tuples.shape[0] - self.pad_size, (1,))
+        #     self.train_tuples = self.orig_tuples[ix:ix+self.pad_size]
+        # else:
+        #     ix = 0
+        #     self.train_tuples = self.orig_tuples
+        
+        # Sample random data
+        ix = torch.randint(0, self.orig_tuples.shape[0], (self.pad_size,))
+        self.train_tuples = self.orig_tuples[ix]
+        
+        # FIXME: Padding Columns Number
+        # block(batch, card, cols)  query(batch, card, cols)  result(batch, 1)
+        item = {'table': self.train_tuples, \
+                'table_idx': ix, \
+                'col': scan_conds[idx][0],\
+                'range': scan_conds[idx][1]}
+        return item
+        
+         
+    def _is_scan(self, qcols, qranges):
+        for idx, i in enumerate(qcols):
+            if self.cols_min.get(i, False):
+                if i == 'Reg Valid Date' or i == 'Reg Expiration Date':
+                    qranges[idx][0] = pd.to_datetime(qranges[idx][0])
+                    qranges[idx][1] = pd.to_datetime(qranges[idx][1])
+                #print("qcol: ", i)
+                if self.cols_min[i] > qranges[idx][1] or self.cols_max[i] < qranges[idx][0]:
+                    return False
+        return True
+    
+    def Sample(self, train_data, query):
+        # df, Indexed_df = train_data._predicate_data(query)
+        
+        predicate_data = train_data.data.loc[eval(query)]
+        selected_indices = predicate_data.index
+        # return predicate_data, self.tuples_df.loc[selected_indices]
+        return torch.tensor(self.tuples_df.loc[selected_indices].values, dtype=torch.float32)
+    
+    def SampleBasedOnQuery(self, Queries, scan_conds):
+        # reserve pad_size dataframe memory
+        new_df = pd.DataFrame(index=range(self.pad_size), columns=self.cols)
+        query_cols = scan_conds[0][0]
+        query_ranges = scan_conds[0][1]
+        
+        new_query_ranges = []
+        for col in self.cols:
+            if col not in query_cols:
+                new_query_ranges.append([self.table.data[col].min(),
+                                         self.table.data[col].max()])
+            else:
+                idx = query_cols.index(col)
+                new_query_ranges.append(query_ranges[idx])
+        query_ranges = np.asarray(new_query_ranges)
+        # print(query_ranges)
+        for i in range(self.pad_size):
+            # Generate a random bit string to determine which values to use
+            bits = np.random.randint(2, size=len(query_cols))
+            values = np.where(bits, query_ranges[:, 0], query_ranges[:, 1])
+            new_df.loc[i] = values
+   
+        new_df = new_df.drop_duplicates()
+        
+        # Discretize
+        new_np = np.stack(
+            [common.Discretize(c, new_df[c.name]) for c in self.table.Columns()], axis=1)
+        
+        new_discretized_df = pd.DataFrame(new_np, columns=self.cols)
+        
+        # padding from sample
+        if new_discretized_df.shape[0] < self.pad_size:
+            target = self.pad_size - new_discretized_df.shape[0] 
+            query_sample_data = self.Sample(self.table, Queries[0])
+            new_discretized_df.append(query_sample_data.sample(n= target if target < query_sample_data.shape[0] else query_sample_data.shape[0]))
+        return torch.tensor(new_discretized_df.values, dtype=torch.float32) 
+    

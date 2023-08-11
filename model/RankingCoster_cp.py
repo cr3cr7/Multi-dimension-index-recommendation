@@ -15,11 +15,12 @@ import torch.nn.functional as F
 from sklearn.metrics import f1_score, accuracy_score
 from model.generation import RankingModel, FilterModel, RankingModel_v2, FilterModel_v2
 import math
-from model.summarization import FeedFoward, SummarizationModel, SummarizationModel2, Classifier, Classifier_v1, Embedding, SummaryTrainer
+from model.summarization import FeedFoward, SummarizationModel, Classifier, Embedding, SummaryTrainer, SummarizationModel2, Classifier_v1
 import pandas as pd
+import numpy as np
+import generateQuery
 
-
-class ScanCostTrainer(pl.LightningModule):
+class RankingCostTrainer(pl.LightningModule):
     def __init__(self, 
                  num_workers=8,
                  **kargs):
@@ -30,8 +31,7 @@ class ScanCostTrainer(pl.LightningModule):
         self.rand = kargs['rand']
         self.configure_loss()
         
-        # self.PATH = "/data1/chenxu/projects/Multi-dimension-index-recommendation/lightning_logs/debug/cg67cnwq/checkpoints/best-epoch=610-val_acc=0.828.ckpt"
-        self.PATH = "/data1/chenxu/projects/Multi-dimension-index-recommendation/lightning_logs/debug/oug4o1pt/checkpoints/best-epoch=438-val_acc=1.000.ckpt"
+        
         # self.SumModel = SummaryTrainer(**kargs)
         # self.SumModel.setup(stage='fit')
         # for param_tensor in self.SumModel.state_dict():
@@ -41,57 +41,70 @@ class ScanCostTrainer(pl.LightningModule):
             
         # self.SumModel.load_from_checkpoint(self.PATH)
 
-    def forward(self, table, query):
-        self.classifier.eval()
-        self.embedding_model.eval()
-        self.summarized_model.eval()
+    def forward(self, table, query_cols, val_range):
         # 大小应为 batch_size ，此处手动设置
-        total_scan = 0.0
         
-        em_query = self.embedding_model(query)
-        query_embed = self.summarized_model(em_query)
+        # proces Query and Range
+        # (batch_size * query_cols)
+        query_cols = list(zip(*query_cols))
+        for i in range(len(val_range)):
+            val_range[i] = list(zip(*val_range[i]))
+
+        val_range = list(zip(*val_range))
 
         table = self.embedding_model(table.to(torch.int))
-        data2id = self.ranking_model(table)
+        data2id, _ = self.ranking_model(table)
+        # cost = data2id.clone().detach()
+        # total_cost = data2id - cost
+        total_cost = torch.zeros_like(data2id)
+        
 
-        for id in range(self.block_nums):
-            block_id, indices = self.filter_model(data2id, id)
-            # torch.Size([100, 100, 15, 2]) torch.Size([100, 100, 1]) torch.Size([100, 20])
-            # print(table.shape, block_id.shape, indices.shape)
-            block = table * block_id
+        for one_batch_index in range(len(val_range)):
+            # cost[:, :] = 0    
+            for id in range(self.block_nums):
+                block_id, indices = self.filter_model(data2id, id)
+                indices = indices.cpu().numpy()
 
-            # (batch_size, block_size, col, dmodel)
-            selected_block = torch.gather(block, 1, indices.unsqueeze(-1).expand(-1, -1, block.size(2)).unsqueeze(-1).expand(-1, -1, -1, block.size(-1)))
-
-            # padding
-            current_size = selected_block.size(1)
-            if current_size < self.hparams.pad_size:
-                pad_amounts = [0, 0, 0, 0, 0, self.hparams.pad_size - current_size]
-
-                selected_block = F.pad(selected_block, pad_amounts, "constant", 0)
-
-            block_embed = self.summarized_model(selected_block)
-            scan = self.classifier(block_embed, query_embed)
-            # scan = (scan > 0.5).float()
-            total_scan = scan + total_scan
+                one_batch_query_cols = query_cols[one_batch_index]
+                one_batch_val_ranges = val_range[one_batch_index]
+                
+                one_batch_block_df = self.table_dataset.table.data.loc[indices[one_batch_index],:]
+                is_scan = True                
+                for idx, q in enumerate(one_batch_query_cols):
+                    if q == 'Reg Valid Date' or q == 'Reg Expiration Date':
+                        min_range = pd.to_datetime(one_batch_val_ranges[idx][0])
+                        max_range = pd.to_datetime(one_batch_val_ranges[idx][1])
+                        if one_batch_block_df[q].min() > max_range or one_batch_block_df[q].max() < min_range:
+                            is_scan = False
+                            break
+                        continue
+                    if one_batch_block_df[q].min() > one_batch_val_ranges[idx][1] or one_batch_block_df[q].max() < one_batch_val_ranges[idx][0]:
+                        is_scan = False
+                        break
+                if is_scan:
+                    total_cost[one_batch_index, indices[one_batch_index]] = 1
+                    # cost[one_batch_index, indices[one_batch_index]] = 1
+            # total_cost = total_cost + cost
         #return scan
+        total_scan = data2id * total_cost
+        
         return total_scan
 
     def training_step(self, batch, batch_idx):
         table = batch['table']
-        query_sample_data = batch['query']
-        col = batch['col']
+    
+        query_cols = batch['col']
+        val_range = batch['range']
         # table, query_sample_data, target = batch 
-        scan = self(table, query_sample_data)
+        scan = self(table, query_cols, val_range)
         
-        scan = scan.sum()
+        scan = scan.sum() / 20
    
         self.log('scan', scan, on_step=True, on_epoch=True, prog_bar=True)
         return scan
 
     def validation_step(self, batch, batch_idx):
         table = batch['table']
-        query_sample_data = batch['query']
         # (query_cols * batch_size)
         query_cols = batch['col']
         # print(col)
@@ -106,10 +119,9 @@ class ScanCostTrainer(pl.LightningModule):
         val_range = list(zip(*val_range))
         
         # table, query_sample_data, target = batch
-        em_query = self.embedding_model(query_sample_data)
-        query_embed = self.summarized_model(em_query)
+        
         table = self.embedding_model(table.to(torch.int))
-        data2id = self.ranking_model(table)
+        data2id, _ = self.ranking_model(table)
         scan = 0
         for id in range(self.block_nums):
             block_id, indices = self.filter_model(data2id, id)
@@ -172,55 +184,20 @@ class ScanCostTrainer(pl.LightningModule):
 
         self.load_model(table.Columns())
         ReportModel(self.ranking_model)
-        ReportModel(self.summarized_model)
-        ReportModel(self.classifier)
         ReportModel(self.embedding_model)
         self.table_dataset = TableDataset(table)
 
     def load_model(self, columns):
-        # load state dict
-        state_dict = torch.load(self.PATH)['state_dict']
-        # print(state_dict.keys())
-        from collections import OrderedDict
-        new_state_dict = OrderedDict()
-        for k, v in state_dict.items():
-            modelname, statename = k.split('.', 1) # remove `modelname.`
-            if new_state_dict.get(modelname) is None:
-                new_state_dict[modelname] = OrderedDict()
-                new_state_dict[modelname][statename] = v
-            else:
-                new_state_dict[modelname][statename] = v
-        
         # self.ranking_model = RankingModel(self.hparams.block_size, self.block_nums, len(self.cols), self.hparams.dmodel)
         self.ranking_model = RankingModel_v2(self.hparams.block_size, self.block_nums, len(self.cols), self.hparams.dmodel)
 
         # self.filter_model = FilterModel()
         self.filter_model = FilterModel_v2()
 
-        # Freeze model
-        # self.summarized_model = SummarizationModel(d_model=self.hparams.dmodel, 
-        #                                 nin=len(columns), 
-        #                                 pad_size=self.hparams.pad_size)
-        self.summarized_model = SummarizationModel2(d_model=self.hparams.dmodel, Ncol=len(columns))
-        self.summarized_model.load_state_dict(new_state_dict['model'])
-        
-        # self.classifier = Classifier(self.hparams.dmodel)
-        self.classifier = Classifier_v1(self.hparams.dmodel)
-        self.classifier.load_state_dict(new_state_dict['classifier']) 
-
         self.embedding_model = Embedding(d_model=self.hparams.dmodel, 
                                         nin=len(columns), 
                                         input_bins=[c.DistributionSize() for c in columns])
-        self.embedding_model.load_state_dict(new_state_dict['embedding_model'])
         
-        for param in self.embedding_model.parameters():
-            param.requires_grad = False
-        for param in self.summarized_model.parameters():
-            param.requires_grad = False
-        for param in self.classifier.parameters():
-            param.requires_grad = False
-    
-        # Freeze model
 
     def train_dataloader(self):
         return DataLoader(self.trainset, batch_size=self.hparams.batch_size, num_workers=self.num_workers, shuffle=True)

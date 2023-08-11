@@ -7,6 +7,7 @@ from pytorch_lightning.loggers import TensorBoardLogger, WandbLogger
 from model.summarization import SummaryTrainer
 from model import MInterface
 from model.ScanCoster import ScanCostTrainer
+from model.RankingCoster import RankingCostTrainer
 
 
 def load_callbacks():
@@ -38,23 +39,25 @@ def main(args):
     if args.load_path is None:
         # model = MInterface(**vars(args))
         # model = SummaryTrainer(**vars(args))
-        model = ScanCostTrainer(**vars(args))
+        # model = ScanCostTrainer(**vars(args))
+        model = RankingCostTrainer(**vars(args))
     else:
         # model = MInterface(**vars(args))
         # model = SummaryTrainer(**vars(args))
-        model = ScanCostTrainer(**vars(args))
+        # model = ScanCostTrainer(**vars(args))
+        model = RankingCostTrainer(**vars(args))
         # args.ckpt_path = args.load_path
 
     # # If you want to change the logger's saving folder
-    logger = WandbLogger(name="dmv_tiny_SortOrder", save_dir=args.log_dir, project="debug")
+    logger = WandbLogger(name=f"{args.dataset}_SortOrder_V2_Norm_RandTable", save_dir=args.log_dir, project="debug")
     # logger = False
     args.logger = logger
     args.callbacks = load_callbacks()
 
     # trainer = Trainer.from_argparse_args(args, accelerator='gpu', gpus=1, log_every_n_steps=1)
     # trainer = Trainer.from_argparse_args(args, accelerator='gpu', devices=[2], fast_dev_run=True)
-    trainer = Trainer.from_argparse_args(args, accelerator='cpu', log_every_n_steps=1)
-    # trainer = Trainer.from_argparse_args(args, accelerator='cpu', fast_dev_run=True)
+    trainer = Trainer.from_argparse_args(args, accelerator='cpu', log_every_n_steps=1, gradient_clip_val=0.5, check_val_every_n_epoch=args.check_val)
+    # trainer = Trainer.from_argparse_args(args, accelerator='cpu', fast_dev_run=True, limit_train_batches=2)
     trainer.fit(model)
 
 if __name__ == '__main__':
@@ -66,8 +69,8 @@ if __name__ == '__main__':
     parser.add_argument('--lr', default=1e-3, type=float)
 
     # LR Scheduler
-    parser.add_argument('--lr_scheduler', choices=['step', 'cosine'], type=str)
-    parser.add_argument('--lr_decay_steps', default=20, type=int)
+    parser.add_argument('--lr_scheduler', default=None, choices=['step', 'cosine', 'onecycler'], type=str)
+    parser.add_argument('--lr_decay_steps', default=50, type=int)
     parser.add_argument('--lr_decay_rate', default=0.5, type=float)
     parser.add_argument('--lr_decay_min_lr', default=1e-5, type=float)
 
@@ -79,9 +82,13 @@ if __name__ == '__main__':
     parser.add_argument('--load_v_num', default=None, type=int)
 
     # Training Info
-    parser.add_argument('--pad_size', type=int, default='99', help='Padding Size')
+    parser.add_argument('--epochs', default=5000, type=int)
+    parser.add_argument('--check_val', default=1, type=int)
+    parser.add_argument('--pad_size', type=int, default='100', help='Padding Size')
+    parser.add_argument('--train_block_size', type=int, default='20', help='Block Size of a FS block.')
+    parser.add_argument('--test_block_size', type=int, default='20', help='Block Size of a FS block.')
     parser.add_argument('--block_size', type=int, default='20', help='Block Size of a FS block.')
-    parser.add_argument('--dataset', type=str, default='dmv-tiny', help='Dataset.')
+    parser.add_argument('--dataset', type=str, default='dmv-tiny', choices=['lineitem', 'randomwalk', 'dmv-tiny'], help='Dataset.')
     parser.add_argument('--rand', type=str, default=False, help='Whether generate random queries every new batch (for debug purpose).')
     parser.add_argument('--data_dir', default='ref/data', type=str)
     parser.add_argument('--model_name', default='transformer', type=str)
@@ -133,9 +140,10 @@ if __name__ == '__main__':
     #     parser.add_argument_group(title="pl.Trainer args"))
 
     # Reset Some Default Trainer Arguments' Default Values
-    parser.set_defaults(max_epochs=1000)
+    
 
     args = parser.parse_args() # type: ignore
-
+    
+    parser.set_defaults(max_epochs=args.epochs)
 
     main(args)

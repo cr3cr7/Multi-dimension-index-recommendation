@@ -11,6 +11,8 @@ from torch.utils import data
 import pandas as pd
 import torch
 import torch.nn.functional as F
+import os
+import pickle
 
 # Dataset Index后的数据 -> [Indexed Dataset]
 # Trainning Query Generation -> [Training set], [统计一下每个查询扫描block数 Natural Order]
@@ -21,8 +23,8 @@ def QueryGeneration(nums, train_data: pd.DataFrame, cols):
 
     for i in range(nums):
         rng = np.random.RandomState()
-        query_cols_nums = random.randint(1, len(cols))
-        #query_cols_nums = len(cols)
+        # query_cols_nums = random.randint(1, len(cols))
+        query_cols_nums = len(cols)
         qcols, qops, qvals, qranges = generateQuery.SampleTupleThenRandom(cols, query_cols_nums, rng, train_data)
         conditions = []
         for i in range(len(qcols)):
@@ -96,7 +98,14 @@ class BlockDataset(data.Dataset):
         self.cols_max = {}
         
         # Generate test Queries
-        self.testQuery, self.testScanConds =  QueryGeneration(1, self.table.data, self.cols)
+        save_path = "./datasets/scan_condation.pkl"
+        if not os.path.exists(save_path):
+            self.testQuery, self.scan_conds = QueryGeneration(100, df.loc[:, cols], cols)
+            # pickle.dump(scan_conds, open(save_path, "wb"))
+        else:
+            print("*"*50 + "Load scan_conds from file! " + "*"*50)
+            self.testScanConds = pickle.load(open(save_path, "rb"))
+            self.testQuery = pickle.load(open("./datasets/Queries.pkl", "rb"))
         
     def Discretize(self, col, data=None):
         """Discretize values into its Column's bins.
@@ -146,7 +155,12 @@ class BlockDataset(data.Dataset):
         # idx: index of the block
             
         # 1. Get the block
-        new_block, new_tuple_df = self.RandomBlockGeneration()
+        # new_block, new_tuple_df = self.RandomBlockGeneration()
+        number = random.randint(0, 1)
+        if number:
+            new_block, new_tuple_df = self.RandomBlockGeneration()
+        else:
+            new_block, new_tuple_df = self.OrderBlockGeneration()
         new_idx = random.randint(0, math.ceil(self.table.data.shape[0] / self.block_size) - 1) 
         #print(new_tuple_df[new_tuple_df['id'] == new_idx])
         new_block = self.zero_except_id(new_block, new_tuple_df, new_idx)
@@ -243,12 +257,20 @@ class BlockDataset(data.Dataset):
         new_discretized_df = pd.DataFrame(new_np, columns=self.cols)
         
         # padding from sample
-        time3 = time.time()
         if new_discretized_df.shape[0] < self.pad_size:
             target = self.pad_size - new_discretized_df.shape[0] 
             query_sample_data = self.Sample(self.table, Queries[0])
 
             new_discretized_df.append(query_sample_data.sample(n= target if target < query_sample_data.shape[0] else query_sample_data.shape[0]))
-        time4 = time.time()
-        print("padding time: ", time4 - time3)
         return torch.tensor(new_discretized_df.values, dtype=torch.float32) 
+    
+    def OrderBlockGeneration(self):
+        new_tuple_df = self.table.data.copy(deep=True)
+        col = self.cols[random.randint(0, len(self.cols)-1)]
+        sorted_id = sorted(range(self.table.data.shape[0]), key=lambda k:new_tuple_df.loc[k, col])
+        sorted_id = np.asarray(sorted_id)
+        
+        
+        new_tuple = torch.cat([torch.as_tensor(sorted_id.reshape(-1, 1)), self.orig_tuples], dim=1)
+        new_tuple_df["id"] = sorted_id // self.block_size
+        return new_tuple, new_tuple_df

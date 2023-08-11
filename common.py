@@ -193,8 +193,10 @@ class CsvTable(Table):
         print('Loading csv...', end=' ')
         s = time.time()
         df = pd.read_csv(filename, usecols=cols, **kwargs)
-        if df.shape[0] > 100:
-            df = df.sample(n=100).reset_index()
+        # line_num = 1000
+        # if df.shape[0] > line_num:
+        #     df = df.sample(n=line_num).reset_index()
+        #     df.to_csv("./datasets/linitem_1000.csv", index=False)
         if cols is not None:
             df = df[cols]
         print('done, took {:.1f}s'.format(time.time() - s))

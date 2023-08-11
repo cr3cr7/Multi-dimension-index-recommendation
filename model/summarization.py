@@ -120,8 +120,8 @@ class Classifier_v1(nn.Module):
     def __init__(self, d_model):
         super().__init__()
         self.classifier = nn.Sequential(
-            nn.Linear(d_model * 2, 64),
-            # nn.Linear(1472 * 2, 64),
+            # nn.Linear(d_model * 2, 64),
+            nn.Linear(1472 * 2, 64),
             nn.ReLU(),
             nn.Linear(64, 1),
             nn.Sigmoid()
@@ -218,6 +218,7 @@ class SummaryTrainer(pl.LightningModule):
             raise ValueError(
                 f'Invalid Dataset File Name or Invalid Class Name data.{dataset}')
         print(table.data.info())
+        print(table.data.nunique())
         # self.data_module = TableDataset(table)
         # Assign train/val datasets for use in dataloaders
         self.cols = table.ColumnNames()
@@ -241,7 +242,8 @@ class SummaryTrainer(pl.LightningModule):
         self.model = SummarizationModel2(d_model=self.hparams.dmodel, Ncol=len(columns))
                                          
     
-        self.classifier = Classifier(self.hparams.dmodel)
+        # self.classifier = Classifier(self.hparams.dmodel)
+        self.classifier = Classifier_v1(self.hparams.dmodel)
         
         self.embedding_model = Embedding(d_model=self.hparams.dmodel, 
                                         nin=len(columns), 

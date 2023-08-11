@@ -7,6 +7,7 @@ from pytorch_lightning.loggers import TensorBoardLogger, WandbLogger
 from model.summarization import SummaryTrainer
 from model import MInterface
 from model.ScanCoster import ScanCostTrainer
+from model.RankingCoster_cpcp import RankingCostTrainer
 
 
 def load_callbacks():
@@ -18,13 +19,13 @@ def load_callbacks():
     #     min_delta=0.001
     # ))
 
-    callbacks.append(plc.ModelCheckpoint(
-        monitor='val_loss',
-        filename='best-{epoch:02d}-{val_acc:.3f}',
-        save_top_k=1,
-        mode='min',
-        save_last=True
-    ))
+    # callbacks.append(plc.ModelCheckpoint(
+    #     monitor='scan',
+    #     filename='best-{epoch:02d}-{val_scan:.3f}',
+    #     save_top_k=1,
+    #     mode='min',
+    #     save_last=True
+    # ))
 
     if args.lr_scheduler:
         callbacks.append(plc.LearningRateMonitor(
@@ -37,22 +38,26 @@ def main(args):
 
     if args.load_path is None:
         # model = MInterface(**vars(args))
-        model = SummaryTrainer(**vars(args))
-        #　model = ScanCostTrainer(**vars(args))
+        # model = SummaryTrainer(**vars(args))
+        # model = ScanCostTrainer(**vars(args))
+        model = RankingCostTrainer(**vars(args))
     else:
         # model = MInterface(**vars(args))
-        model = SummaryTrainer(**vars(args))
+        # model = SummaryTrainer(**vars(args))
         # model = ScanCostTrainer(**vars(args))
+        model = RankingCostTrainer(**vars(args))
         # args.ckpt_path = args.load_path
 
     # # If you want to change the logger's saving folder
-    logger = WandbLogger(name="dmv_tiny_model", save_dir=args.log_dir, project="debug")
-    # logger = False
+    # logger = WandbLogger(name="dmv_tiny_SortOrder", save_dir=args.log_dir, project="debug")
+    logger = False
     args.logger = logger
     args.callbacks = load_callbacks()
 
-    trainer = Trainer.from_argparse_args(args, accelerator='gpu', gpus=1, log_every_n_steps=1)
-    # trainer = Trainer.from_argparse_args(args, accelerator='gpu', gpus=1, fast_dev_run=True, profiler="simple")
+    # trainer = Trainer.from_argparse_args(args, accelerator='gpu', gpus=1, log_every_n_steps=1)
+    # trainer = Trainer.from_argparse_args(args, accelerator='gpu', devices=[2], fast_dev_run=True)
+    trainer = Trainer.from_argparse_args(args, accelerator='cpu', log_every_n_steps=1, gradient_clip_val=0.5)
+    # trainer = Trainer.from_argparse_args(args, accelerator='cpu', fast_dev_run=True, limit_train_batches=2)
     trainer.fit(model)
 
 if __name__ == '__main__':
@@ -61,11 +66,11 @@ if __name__ == '__main__':
     parser.add_argument('--batch_size', default=512, type=int)
     parser.add_argument('--num_workers', default=8, type=int)
     parser.add_argument('--seed', default=1234, type=int)
-    parser.add_argument('--lr', default=5e-4, type=float)
+    parser.add_argument('--lr', default=1e-3, type=float)
 
     # LR Scheduler
-    parser.add_argument('--lr_scheduler', choices=['step', 'cosine'], type=str)
-    parser.add_argument('--lr_decay_steps', default=20, type=int)
+    parser.add_argument('--lr_scheduler', default=None, choices=['step', 'cosine', 'onecycler'], type=str)
+    parser.add_argument('--lr_decay_steps', default=50, type=int)
     parser.add_argument('--lr_decay_rate', default=0.5, type=float)
     parser.add_argument('--lr_decay_min_lr', default=1e-5, type=float)
 
@@ -80,7 +85,7 @@ if __name__ == '__main__':
     parser.add_argument('--pad_size', type=int, default='99', help='Padding Size')
     parser.add_argument('--block_size', type=int, default='20', help='Block Size of a FS block.')
     parser.add_argument('--dataset', type=str, default='dmv-tiny', help='Dataset.')
-    parser.add_argument('--rand', type=str, default=True, help='Whether generate random queries every new batch (for debug purpose).')
+    parser.add_argument('--rand', type=str, default=False, help='Whether generate random queries every new batch (for debug purpose).')
     parser.add_argument('--data_dir', default='ref/data', type=str)
     parser.add_argument('--model_name', default='transformer', type=str)
     parser.add_argument('--loss', default='bce', type=str)
@@ -107,7 +112,7 @@ if __name__ == '__main__':
                         help='Transformer: num blocks.')
     parser.add_argument('--dmodel',
                         type=int,
-                        default=1,
+                        default=2,
                         help='Transformer: d_model.')
     parser.add_argument('--dff', type=int, default=64, help='Transformer: d_ff.')
     parser.add_argument('--transformer-act',
@@ -131,7 +136,7 @@ if __name__ == '__main__':
     #     parser.add_argument_group(title="pl.Trainer args"))
 
     # Reset Some Default Trainer Arguments' Default Values
-    parser.set_defaults(max_epochs=1000)
+    parser.set_defaults(max_epochs=3000)
 
     args = parser.parse_args() # type: ignore
 
