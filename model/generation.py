@@ -12,6 +12,7 @@ import torch.nn.functional as F
 from sklearn.metrics import f1_score, accuracy_score
 import math
 import torchsort
+from model.transformer import Block
 
 from sklearn.cluster import estimate_bandwidth, AgglomerativeClustering, KMeans
 
@@ -110,10 +111,11 @@ class VAE(nn.Module):
             nn.Linear(32, col_num * dmodel),
             nn.ReLU()
         )
-        self.reparameterize = Lambda(int(col_num * dmodel), int(col_num * dmodel / 2))
+        self.latent_dim = int((dmodel * col_num) / 4) 
+        self.reparameterize = Lambda(int(col_num * dmodel), self.latent_dim)
         
         self.decoder = nn.Sequential(
-            nn.Linear(int(col_num * dmodel / 2), 32),
+            nn.Linear(self.latent_dim, 32),
             nn.ReLU(),
             nn.Linear(32, col_num),
             nn.ReLU()
@@ -335,7 +337,8 @@ class RankingModel_v2(nn.Module):
         self.input_bins = input_bins
         
         self.model = VAE(col_num, dmodel)
-        self.latent_size = int((self.dmodel * self.col_num / 2))
+        self.latent_size = self.model.latent_dim
+        # self.latent_size = 32
         
         self.MLP = nn.Sequential(
             nn.LayerNorm(self.latent_size),
@@ -346,6 +349,21 @@ class RankingModel_v2(nn.Module):
             # nn.Sigmoid()
             # nn.ReLU()
         )
+        
+        d_model = self.latent_size
+        d_ff = 128
+        num_heads = 2
+        num_blocks = 4
+        activation = "gelu"
+        self.blocks = nn.Sequential(*[
+            Block(d_model,
+                  d_ff,
+                  num_heads,
+                  activation,
+                  do_residual=True)
+            for i in range(num_blocks)
+        ])
+        
         # self.ln1 = nn.LayerNorm(100)
         self.apply(self._init_weights)
     
@@ -358,13 +376,19 @@ class RankingModel_v2(nn.Module):
         # table = table / torch.tensor(self.input_bins)
         # table = table / max(self.input_bins)
         # table = table / 10
-        # Log transform
-        table = torch.log(table + 1)
-        
+        # FIMXE: Hack For larg tbale --Log transform
+        if max(self.input_bins) > 1200:
+            table = torch.log(table + 1)
+
         loss, z = self.model(table)
+        scores = self.blocks(z)
         scores = self.MLP(z).reshape(-1, rows)
         # scores = nn.functional.softmax(scores, dim=1)
-
+        
+        # For Fast Inference
+        if not self.training:
+            return scores.reshape(-1)
+            
         min_vals = torch.min(scores, dim=1, keepdim=True)[0]
         max_vals = torch.max(scores, dim=1, keepdim=True)[0]
         scaled_scores = ((scores - min_vals) / (max_vals - min_vals)) * len(table)

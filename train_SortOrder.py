@@ -46,7 +46,8 @@ def main(args):
         # model = SummaryTrainer(**vars(args))
         # model = ScanCostTrainer(**vars(args))
         model = RankingCostTrainer(**vars(args))
-        # args.ckpt_path = args.load_path
+        args.ckpt_path = args.load_path
+        print("Load from checkpoint: ", args.ckpt_path)
 
     # # If you want to change the logger's saving folder
     logger = WandbLogger(name=f"{args.dataset}_SortOrder_V2_Norm_RandTable", save_dir=args.log_dir, project="debug")
@@ -56,7 +57,15 @@ def main(args):
 
     # trainer = Trainer.from_argparse_args(args, accelerator='gpu', gpus=1, log_every_n_steps=1)
     # trainer = Trainer.from_argparse_args(args, accelerator='gpu', devices=[2], fast_dev_run=True)
-    trainer = Trainer.from_argparse_args(args, accelerator='cpu', log_every_n_steps=1, gradient_clip_val=0.5, check_val_every_n_epoch=args.check_val)
+    trainer = Trainer.from_argparse_args(args, accelerator='gpu', 
+                                         devices=[3],
+                                        #  strategy=,
+                                         log_every_n_steps=1, 
+                                         gradient_clip_val=0.5, 
+                                         check_val_every_n_epoch=args.check_val, 
+                                         max_epochs=args.epochs,
+                                         # For assert in Validation
+                                         num_sanity_val_steps=0)
     # trainer = Trainer.from_argparse_args(args, accelerator='cpu', fast_dev_run=True, limit_train_batches=2)
     trainer.fit(model)
 
@@ -131,7 +140,10 @@ if __name__ == '__main__':
 
     # Other
     parser.add_argument('--aug_prob', default=0.5, type=float)
+    
+    args = parser.parse_args() # type: ignore
 
+    # parser.set_defaults(max_epochs=args.epochs)
     # Add pytorch lightning's args to parser as a group.
     parser = Trainer.add_argparse_args(parser)
 
@@ -142,8 +154,7 @@ if __name__ == '__main__':
     # Reset Some Default Trainer Arguments' Default Values
     
 
-    args = parser.parse_args() # type: ignore
+
     
-    parser.set_defaults(max_epochs=args.epochs)
 
     main(args)

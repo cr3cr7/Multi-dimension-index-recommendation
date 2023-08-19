@@ -167,15 +167,15 @@ class MultiHeadSelfAttention(nn.Module):
         x = x.view(start + [self.num_heads, m // self.num_heads])
         return x.permute(0, 2, 1, 3)
 
-    def _do_attention(self, query, key, value, mask):
+    def _do_attention(self, query, key, value, mask=None):
         """Accepts Q,K,V each shaped [bs, num heads, num cols, d_state].
 
         Returns transformed [bs, num_heads, num cols, d_state].
         """
         d_k = query.size()[-1]
         scores = torch.matmul(query, key.transpose(-1, -2)) / np.sqrt(d_k)
-        mask = mask.to(scores.dtype)
-        scores = scores * mask - (1 - mask) * 1e10
+        # mask = mask.to(scores.dtype)
+        # scores = scores * mask - (1 - mask) * 1e10
         attn_weights = F.softmax(scores, dim=-1)
 
         out = torch.matmul(attn_weights, value)
@@ -197,8 +197,11 @@ class MultiHeadSelfAttention(nn.Module):
             qs, _, _ = map(self._split_heads, torch.chunk(qkv, 3, dim=-1))
 
         # [bs, num heads, num cols, d_state]
-        x = self._do_attention(qs, ks, vs, mask=self.attn_mask.to(x.device))
-
+        if self.attn_mask:
+            x = self._do_attention(qs, ks, vs, mask=self.attn_mask.to(x.device))
+        else:
+            x = self._do_attention(qs, ks, vs)
+        
         # [bs, num cols, num heads, d_state]
         x = x.transpose(1, 2)
         # Concat all heads' outputs: [bs, num cols, num heads * d_state]

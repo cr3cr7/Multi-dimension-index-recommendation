@@ -50,7 +50,7 @@ def Zorder(df, cols, original_df, name):
         df.loc[index, "zvalue"] = zvalue
         i += 1
     original_df["zvalue"] = df["zvalue"]
-    original_df.sort_values(by="zvalue").to_csv(f"./datasets/{name}-1000-zorder.csv", index=False)
+    original_df.to_csv(f"./datasets/{name}-zorder.csv", index=False)
     # df.sort_values(by="zvalue").to_csv("./datasets/dmv-tiny-zorder.csv", index=False)
 
 
@@ -58,10 +58,13 @@ def Zorder(df, cols, original_df, name):
 
 def ZorderBlock(df, cols, block_size):
     cols_num = len(cols)
-    save_path = f"./datasets/scan_condation_{cols_num}Cols.pkl"
+    save_path = f"./datasets/scan_condation_{name}.pkl"
+    # save_path = f"./datasets/scan_condation_{cols_num}Cols.pkl"
     if not os.path.exists(save_path):
+        assert 0
         Queries, scan_conds = QueryGeneration(100, df.loc[:, cols], cols)
-        pickle.dump(Queries, open(f"./datasets/Queries_{cols_num}Cols.pkl", "wb"))
+        pickle.dump(Queries, open(f"./datasets/Queries_{name}.pkl", "wb"))
+        # pickle.dump(Queries, open(f"./datasets/Queries_{cols_num}Cols.pkl", "wb"))
         pickle.dump(scan_conds, open(save_path, "wb"))
     else:
         print("Load scan condations")
@@ -109,17 +112,22 @@ if __name__ == "__main__":
     all_cols = list(map(str, range(100)))
     # Zorder(df, cols, original_df=original_df)
     
+    # block_size = 60000
     block_size = 200
-    # table = LoadDmv("dmv-tiny-zorder.csv", cols=cols)
-    name = 'RandomWalk_10000'
+    # table = LoadDmv("dmv-tiny.csv", cols=cols)
+    # name = 'RandomWalk_1e6'
+    rowNum = 10000
+    colsNum = 100
+    name = f'RandomWalk-{int(rowNum/1000)}K-{colsNum}Col.csv'.split(".")[0]
     # name = 'dmv-tiny'
     # name  = 'linitem_1000'
     # table = LoadLineitem(f"{name}.csv", cols=cols)
-    table = datasets.LoadRandomWalk(100, 10000)
+    table = datasets.LoadRandomWalk(colsNum, rowNum)
+    # table = datasets.LoadRandomWalk(100, int(1e6))
     df = common.TableDataset(table).tuples_df
     Zorder(df, cols, original_df=table.data, name=name)
     # print(table.data)
-
+    # all_cols = cols
     ZorderBlock(table.data, all_cols, block_size)
 
 

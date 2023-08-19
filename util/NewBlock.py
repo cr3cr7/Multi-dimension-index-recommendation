@@ -107,7 +107,8 @@ class BlockDataset(data.Dataset):
         # Generate test Queries
         # save_path = "./datasets/scan_condation_1000.pkl"
         cols_num = len(cols)
-        save_path = f"./datasets/scan_condation_{cols_num}Cols.pkl"
+        # save_path = f"./datasets/scan_condation_{cols_num}Cols.pkl"
+        save_path = f'/datasets/scan_condation_{table.name}_{cols_num}Cols.pkl'
         if not os.path.exists(save_path):
             self.testQuery, self.testScanConds = QueryGeneration(100, self.table.data.loc[:, cols], self.cols)
             # pickle.dump(scan_conds, open(save_path, "wb"))
@@ -318,7 +319,7 @@ class BlockDataset_V2(data.Dataset):
                        rand: bool = False
                        ):
         self.table = copy.deepcopy(table)
-        # self.block_size = block_size
+        self.block_size = block_size
         self.cols = cols
         self.rand = rand
         self.pad_size = pad_size
@@ -341,8 +342,12 @@ class BlockDataset_V2(data.Dataset):
         # Generate test Queries
         # save_path = "./datasets/scan_condation_1000.pkl"
         cols_num = len(cols)
-        save_path = f"./datasets/scan_condation_{cols_num}Cols.pkl"
+        if "DMV" in table.name or "Lineitem" in table.name:
+            save_path = f"./datasets/scan_condation_{cols_num}Cols.pkl"
+        else:
+            save_path = f'./datasets/scan_condation_{table.name}.pkl'
         if not os.path.exists(save_path):
+            raise ValueError(f"Scan condation file {save_path} not exists!")
             self.testQuery, self.testScanConds = QueryGeneration(100, self.table.data.loc[:, cols], self.cols)
             # pickle.dump(scan_conds, open(save_path, "wb"))
         else:
@@ -480,3 +485,31 @@ class BlockDataset_V2(data.Dataset):
             new_discretized_df.append(query_sample_data.sample(n= target if target < query_sample_data.shape[0] else query_sample_data.shape[0]))
         return torch.tensor(new_discretized_df.values, dtype=torch.float32) 
     
+class BlockDataset_Eval(data.Dataset):
+    """Wrap a Block and yield one Row as Pytorch Dataset element."""
+    
+    def __init__(self, table: common.CsvTable,
+                       block_size: int,
+                       cols: list,
+                       pad_size: int,
+                       orig_tuples_np: np.ndarray,
+                       orig_tuples: torch.tensor,
+                       tuples_df: pd.DataFrame,
+                       testQuery: list,
+                       testScanConds: list,
+                       rand: bool = False,
+                       **kwargs
+                       ):
+        self.table = table
+        self.orig_tuples_np = orig_tuples_np
+        self.orig_tuples = orig_tuples
+        self.tuples_df = tuples_df
+        
+        self.testQuery = testQuery
+        self.testScanConds = testScanConds
+        
+    def __getitem__(self, idx):
+        return self.orig_tuples[idx]
+    
+    def __len__(self):
+        return len(self.orig_tuples)    

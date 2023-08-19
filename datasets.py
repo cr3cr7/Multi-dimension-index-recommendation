@@ -60,7 +60,7 @@ def LoadLineitem(filename='lineitem.csv', cols=[]):
    # there is the same as the default str-ordering (lexicographical).
    
    # return common.CsvTable(filename, csv_file, cols, sep='|')
-   return common.CsvTable(filename, csv_file, cols, sep=',')
+   return common.CsvTable("Lineitem", csv_file, cols, sep=',')
 
 
 def LoadRandomWalk(colsNum, rowNum):
@@ -68,7 +68,7 @@ def LoadRandomWalk(colsNum, rowNum):
    csv_file = './datasets/{}'.format(filename)
    cols = list(map(str, range(colsNum)))
    if os.path.exists(csv_file):      
-      return common.CsvTable(filename, csv_file, cols, sep=',')
+      return common.CsvTable(filename.split('.')[0], csv_file, cols, sep=',')
    else:
       n_series = colsNum
       n_steps = rowNum
@@ -78,7 +78,7 @@ def LoadRandomWalk(colsNum, rowNum):
       # Save dataframe to csv file
       df.to_csv(f'./datasets/{filename}', header=True, index=False)
       # np.savetxt(, position, delimiter=',', header=','.join(cols))
-      return common.CsvTable(filename, csv_file, cols, sep=',')
+      return common.CsvTable(filename.split('.')[0], csv_file, cols, sep=',')
 
 
 if __name__ == '__main__':
