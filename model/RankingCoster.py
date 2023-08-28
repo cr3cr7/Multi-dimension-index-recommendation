@@ -146,7 +146,7 @@ class RankingCostTrainer(pl.LightningModule):
         # assert 0
         # return all_loss
         if isinstance(self.ranking_model, RankingModel_v4) or isinstance(self.ranking_model, RankingModel_v2):
-            recont_loss = recont_loss / (100)
+            recont_loss = recont_loss / (10)
             # recont_loss = recont_loss
             self.log_dict({'cluster_loss': all_loss, 'recont_loss': recont_loss}, on_step=True, on_epoch=True, prog_bar=True)
             # return all_loss + recont_loss

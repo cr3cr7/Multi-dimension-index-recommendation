@@ -58,7 +58,7 @@ def main(args):
     # trainer = Trainer.from_argparse_args(args, accelerator='gpu', gpus=1, log_every_n_steps=1)
     # trainer = Trainer.from_argparse_args(args, accelerator='gpu', devices=[2], fast_dev_run=True)
     trainer = Trainer.from_argparse_args(args, accelerator='gpu', 
-                                         devices=[3],
+                                         devices=[2],
                                         #  strategy=,
                                          log_every_n_steps=1, 
                                          gradient_clip_val=0.5, 

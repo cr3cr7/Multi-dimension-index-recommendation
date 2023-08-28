@@ -108,11 +108,12 @@ class VAE(nn.Module):
         self.encoder = nn.Sequential(
             nn.Linear(col_num , 32),
             nn.ReLU(),
-            nn.Linear(32, col_num * dmodel),
+            nn.Linear(32, 128),
             nn.ReLU()
         )
-        self.latent_dim = int((dmodel * col_num) / 4) 
-        self.reparameterize = Lambda(int(col_num * dmodel), self.latent_dim)
+        # self.latent_dim = int((dmodel * col_num) / 4) 
+        self.latent_dim = 64
+        self.reparameterize = Lambda(128, self.latent_dim)
         
         self.decoder = nn.Sequential(
             nn.Linear(self.latent_dim, 32),
@@ -351,8 +352,8 @@ class RankingModel_v2(nn.Module):
         )
         
         d_model = self.latent_size
-        d_ff = 128
-        num_heads = 2
+        d_ff = 256
+        num_heads = 4
         num_blocks = 4
         activation = "gelu"
         self.blocks = nn.Sequential(*[
@@ -393,6 +394,9 @@ class RankingModel_v2(nn.Module):
         max_vals = torch.max(scores, dim=1, keepdim=True)[0]
         scaled_scores = ((scores - min_vals) / (max_vals - min_vals)) * len(table)
         # regularization_strength = (0.995)**current_epoch
+        # regularization_strength = 0.5 * (0.995)**current_epoch
+        # if regularization_strength < 0.01:
+        #     regularization_strength = 0.01
         regularization_strength = 0.01
         original_ranks = torchsort.soft_rank(scaled_scores, regularization="l2", regularization_strength=regularization_strength)
         # original_ranks = torchsort.soft_rank(scaled_scores, regularization="l2", regularization_strength=0.01)
