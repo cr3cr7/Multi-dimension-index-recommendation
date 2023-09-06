@@ -111,6 +111,27 @@ class VAE(nn.Module):
             nn.Linear(32, 128),
             nn.ReLU()
         )
+        dmodel = 128
+        d_ff = 128
+        num_heads = 2
+        num_blocks = 2
+        activation = "gelu"
+        self.encoder_block = nn.Sequential(*[
+            Block(dmodel,
+                  d_ff,
+                  num_heads,
+                  activation,
+                  do_residual=True)
+            for i in range(num_blocks)
+        ])
+        self.decoder_block = nn.Sequential(*[
+            Block(64,
+                  d_ff,
+                  num_heads,
+                  activation,
+                  do_residual=True)
+            for i in range(num_blocks)
+        ])
         # self.latent_dim = int((dmodel * col_num) / 4) 
         self.latent_dim = 64
         self.reparameterize = Lambda(128, self.latent_dim)
@@ -124,7 +145,9 @@ class VAE(nn.Module):
     
     def forward(self, table):
         encode_table = self.encoder(table)
+        encode_table = self.encoder_block(encode_table)
         z = self.reparameterize(encode_table)
+        z = self.decoder_block(z)
         recon_table = self.decoder(z)
         
         
@@ -352,9 +375,12 @@ class RankingModel_v2(nn.Module):
         )
         
         d_model = self.latent_size
-        d_ff = 256
-        num_heads = 4
-        num_blocks = 4
+        # d_ff = 256
+        # num_heads = 4
+        # num_blocks = 4
+        d_ff = 128
+        num_heads = 2
+        num_blocks = 2
         activation = "gelu"
         self.blocks = nn.Sequential(*[
             Block(d_model,

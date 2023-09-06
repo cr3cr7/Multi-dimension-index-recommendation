@@ -106,15 +106,16 @@ class RankingCostTrainer(pl.LightningModule):
             one_batch = one_batch.view(-1)
             indices = one_batch.nonzero().reshape(-1)
             sorted_indices = indices[torch.argsort(one_batch[indices], descending=True)]
-            for i in range(len(sorted_indices) - 1):
-                if (i % self.hparams.train_block_size == (self.hparams.train_block_size - 1)):
-                    continue
-                # print(one_batch[sorted_indices[i]], one_batch[sorted_indices[i + 1]], one_batch[sorted_indices[i]] - one_batch[sorted_indices[i + 1]])
-                loss += torch.abs(one_batch[sorted_indices[i]] - one_batch[sorted_indices[i + 1]])
-                if torch.is_tensor(distance):
-                    regular_loss += torch.abs(cur_dis[sorted_indices[i]] - cur_dis[sorted_indices[i + 1]])
-                # loss += F.l1_loss(one_batch[sorted_indices[i]], one_batch[sorted_indices[i + 1]])
-            
+            if len(sorted_indices) > 0:
+                loss += one_batch[sorted_indices[0]] - one_batch[sorted_indices[-1]]
+            # for i in range(len(sorted_indices) - 1):
+            #     if (i % self.hparams.train_block_size == (self.hparams.train_block_size - 1)):
+            #         continue
+            #     # print(one_batch[sorted_indices[i]], one_batch[sorted_indices[i + 1]], one_batch[sorted_indices[i]] - one_batch[sorted_indices[i + 1]])
+            #     loss += torch.abs(one_batch[sorted_indices[i]] - one_batch[sorted_indices[i + 1]])
+            #     if torch.is_tensor(distance):
+            #         regular_loss += torch.abs(cur_dis[sorted_indices[i]] - cur_dis[sorted_indices[i + 1]])
+            #     # loss += F.l1_loss(one_batch[sorted_indices[i]], one_batch[sorted_indices[i + 1]])
             loss += len(sorted_indices) / self.hparams.train_block_size
 
             # assert 0       
@@ -146,7 +147,7 @@ class RankingCostTrainer(pl.LightningModule):
         # assert 0
         # return all_loss
         if isinstance(self.ranking_model, RankingModel_v4) or isinstance(self.ranking_model, RankingModel_v2):
-            recont_loss = recont_loss / (10)
+            recont_loss = recont_loss / (100)
             # recont_loss = recont_loss
             self.log_dict({'cluster_loss': all_loss, 'recont_loss': recont_loss}, on_step=True, on_epoch=True, prog_bar=True)
             # return all_loss + recont_loss
