@@ -160,7 +160,7 @@ class RankingCostTrainer(pl.LightningModule):
 
     def training_step(self, batch, batch_idx):
         # Testing
-        if self.current_epoch < 120:
+        if self.hparams.pretraining and self.current_epoch < 120:
             # Ours
             assert len(self.baseline) == len(self.trainset.table.data)
             table = batch['table']

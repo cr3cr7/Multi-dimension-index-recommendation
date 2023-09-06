@@ -348,7 +348,7 @@ class RankingModel_v2(nn.Module):
             nn.LayerNorm(16),
             nn.Linear(16, 1)
             # nn.Sigmoid()
-            # nn.ReLU()
+            # nn.ReLU() 
         )
         
         d_model = self.latent_size
@@ -382,8 +382,9 @@ class RankingModel_v2(nn.Module):
             table = torch.log(table + 1)
 
         loss, z = self.model(table)
-        scores = self.blocks(z)
-        scores = self.MLP(z).reshape(-1, rows)
+        zz = self.blocks(z)
+        # print(zz.shape)
+        scores = self.MLP(zz).reshape(-1, rows)
         # scores = nn.functional.softmax(scores, dim=1)
         
         # For Fast Inference

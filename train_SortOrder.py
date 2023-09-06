@@ -50,8 +50,8 @@ def main(args):
         print("Load from checkpoint: ", args.ckpt_path)
 
     # # If you want to change the logger's saving folder
-    logger = WandbLogger(name=f"{args.dataset}_SortOrder_V2_Norm_RandTable", save_dir=args.log_dir, project="debug")
-    # logger = False
+    # logger = WandbLogger(name=f"{args.dataset}_SortOrder_V2_Norm_RandTable", save_dir=args.log_dir, project="debug")
+    logger = False
     args.logger = logger
     args.callbacks = load_callbacks()
 
@@ -91,6 +91,7 @@ if __name__ == '__main__':
     parser.add_argument('--load_v_num', default=None, type=int)
 
     # Training Info
+    parser.add_argument('--pretraining', default=False, type=bool)
     parser.add_argument('--epochs', default=5000, type=int)
     parser.add_argument('--check_val', default=1, type=int)
     parser.add_argument('--pad_size', type=int, default='100', help='Padding Size')
