@@ -15,38 +15,60 @@ from torch import nn
 import os
 import pickle
 
+def get_domains(dataset):
+    min_values = np.amin(dataset, axis=0)
+    max_values = np.amax(dataset, axis=0)
+    domains = np.array(list(zip(min_values, max_values)))
+    return domains
+
 # Dataset Index后的数据 -> [Indexed Dataset]
 # Trainning Query Generation -> [Training set], [统计一下每个查询扫描block数 Natural Order]
 # 生成查询
-def QueryGeneration(nums, train_data: pd.DataFrame, cols):
+def QueryGeneration(nums, train_data: pd.DataFrame, cols, table: common.CsvTable=None, query_cols_nums=10, dist="UNI"):
     Queries = []
     scan_conditions = []
 
+    if dist == "GAU":
+        domains = get_domains(train_data)
+        maximum_range_percent = 0.1
+        maximum_range = [(domains[i,1] - domains[i,0]) * maximum_range_percent for i in range(len(domains))]
+        return None, generateQuery.generate_distribution_query(nums, 
+                                                               query_cols_nums, 
+                                                               domains, 
+                                                               maximum_range, 
+                                                               cols, 
+                                                               cluster_center_amount=10, 
+                                                               sigma_percent=0.2)
+    
     for i in range(nums):
         rng = np.random.RandomState()
         # Choose Number of Columns 
         # query_cols_nums = random.randint(1, len(cols))
         # query_cols_nums = train_data.shape[1]
-        query_cols_nums = 10
-        
-        qcols, qops, qvals, qranges = generateQuery.SampleTupleThenRandom(cols, query_cols_nums, rng, train_data)
-        conditions = []
-        for i in range(len(qcols)):
-            if str(type(qvals[i])) == "<class 'str'>":
-                qvals[i] = "'" + qvals[i] + "'"
-            if str(type(qvals[i])) == "<class 'numpy.int64'>" or str(type(qvals[i])) == "<class 'numpy.float64'>":
-                qvals[i] = str(qvals[i])
-            if str(type(qvals[i])) == "<class 'pandas._libs.tslibs.timestamps.Timestamp'>":
-                qvals[i] = "'" + str(qvals[i]) + "'"
-        for qcol, qop, qval in zip(qcols, qops, qvals):
-            conditions.append(f"(self.table.data['{qcol}'] {qop} {qval})")
-            # conditions.append(f"(self.table['{qcol}'] {qop} {qval})")
-        #print(conditions)
-        predicate = " & ".join(conditions)
-        Queries.append(predicate)
+        # query_cols_nums = 10
+        if dist == "UNI":
+            qcols, qops, qvals, qranges = generateQuery.SampleTupleThenRandom(cols, query_cols_nums, rng, train_data)
+        elif dist == "GAU":
+            qcols, qops, qvals, qranges = generateQuery.SampleGaussianQueries(cols, query_cols_nums, rng, train_data)
+        else:
+            raise NotImplementedError
+        # conditions = []
+        # for i in range(len(qcols)):
+        #     if str(type(qvals[i])) == "<class 'str'>":
+        #         qvals[i] = "'" + qvals[i] + "'"
+        #     if str(type(qvals[i])) == "<class 'numpy.int64'>" or str(type(qvals[i])) == "<class 'numpy.float64'>":
+        #         qvals[i] = str(qvals[i])
+        #     if str(type(qvals[i])) == "<class 'pandas._libs.tslibs.timestamps.Timestamp'>":
+        #         qvals[i] = "'" + str(qvals[i]) + "'"
+        # for qcol, qop, qval in zip(qcols, qops, qvals):
+        #     conditions.append(f"(self.table.data['{qcol}'] {qop} {qval})")
+        #     # conditions.append(f"(self.table['{qcol}'] {qop} {qval})")
+        # #print(conditions)
+        # predicate = " & ".join(conditions)
+        # Queries.append(predicate)
         
         scan_conditions.append([qcols, qranges])
-    return Queries, scan_conditions
+    return None, scan_conditions
 
 # Random Block Generation (Block Size = 20) -> [Indexed Dataset]
 def RandomBlockGeneration(table, block_size):
@@ -258,7 +280,7 @@ class BlockDataset(data.Dataset):
         predicate_data = train_data.data.loc[eval(query)]
         selected_indices = predicate_data.index
         # return predicate_data, self.tuples_df.loc[selected_indices]
-        return torch.tensor(self.tuples_df.loc[selected_indices].values, dtype=torch.float32)
+        return torch.tensor(self.tuples_df.loc[selected_indices].values, dtype=torch.float32), 
     
     def SampleBasedOnQuery(self, Queries, scan_conds):
         # reserve pad_size dataframe memory
@@ -316,7 +338,8 @@ class BlockDataset_V2(data.Dataset):
                        block_size: int, 
                        cols: list,
                        pad_size: int,
-                       rand: bool = False
+                       rand: bool = False,
+                       dist: str = "UNI"
                        ):
         self.table = copy.deepcopy(table)
         self.block_size = block_size
@@ -329,6 +352,8 @@ class BlockDataset_V2(data.Dataset):
         # [cardianlity, num cols].
         self.orig_tuples_np = np.stack(
             [self.Discretize(c) for c in self.table.Columns()], axis=1)
+        # TODO: Original Data or Discrete data?
+        # self.orig_tuples_np = table.data.to_numpy()
         self.orig_tuples = torch.as_tensor(
             self.orig_tuples_np.astype(np.float32, copy=False))
         self.tuples_df = pd.DataFrame(self.orig_tuples_np)
@@ -342,20 +367,72 @@ class BlockDataset_V2(data.Dataset):
         # Generate test Queries
         # save_path = "./datasets/scan_condation_1000.pkl"
         cols_num = len(cols)
-        if "DMV" in table.name or "Lineitem" in table.name:
+        if "dmv" in table.name or "Lineitem" in table.name:
             save_path = f"./datasets/scan_condation_{cols_num}Cols.pkl"
+            if table.name == 'dmv-clean':
+                save_path = f'./datasets/scan_condation_{table.name}_UNI.pkl'
         else:
             save_path = f'./datasets/scan_condation_{table.name}.pkl'
+            if table.name == 'dmv-clean':
+                save_path = f'./datasets/scan_condation_{table.name}_UNI.pkl'
         if not os.path.exists(save_path):
             raise ValueError(f"Scan condation file {save_path} not exists!")
             self.testQuery, self.testScanConds = QueryGeneration(100, self.table.data.loc[:, cols], self.cols)
             # pickle.dump(scan_conds, open(save_path, "wb"))
         else:
-            print("*"*50 + f"Load scan_conds:{save_path} from file! " + "*"*50)
-            self.testScanConds = pickle.load(open(save_path, "rb"))
-            self.testQuery = pickle.load(open(f"./datasets/Queries_{cols_num}Cols.pkl", "rb"))
-
-
+            
+            if table.name == "RandomWalk-10K-100Col":
+                save_path = './datasets/scan_conds.json'
+                print("*"*50 + f"Load scan_conds:{save_path} from file! " + "*"*50)
+                import json
+                self.testScanConds = json.load(open('./datasets/scan_conds.json', 'r'))
+                self.testQuery = None
+                
+                # padding testScanConds to same length
+                max_len = 10
+                col_padding = "111"
+                range_padding = [0.00, 0.00]
+                for scan_cond in self.testScanConds:
+                    if len(scan_cond[0]) < max_len:
+                        # pad scan_cond until max_len
+                        # print(scan_cond[0])
+                        # print(scan_cond[1])
+                        # assert 0
+                        scan_cond[0].extend([col_padding] * (max_len - len(scan_cond[0])))
+                        scan_cond[1].extend([range_padding] * (max_len - len(scan_cond[1])))        
+                    assert len(scan_cond[0]) == len(scan_cond[1]) == max_len
+            else:
+                print("*"*50 + f"Load scan_conds:{save_path} from file! " + "*"*50)
+                self.testScanConds = pickle.load(open(save_path, "rb"))[:100]
+                # TODO: Deprecated
+                self.testQuery = pickle.load(open(f"./datasets/Queries_3Cols.pkl", "rb"))[:100]
+        
+        # Start Sample Data From Query
+        print("Start Sample Data From Query ...")
+        self.SampledData = []
+        self.SampledIdx = []
+        self.Selectivity = []
+        for one_batch_index in range(len(self.testScanConds)):
+            one_batch_query_cols, one_batch_val_ranges = self.testScanConds[one_batch_index]
+            preds = []
+            for col, (min_, max_) in zip(one_batch_query_cols, one_batch_val_ranges):
+                if col in ['Reg Valid Date', 'Reg Expiration Date', 'VIN', 'County', 'City'] \
+                    + ['Record Type','Registration Class','State','County','Body Type','Fuel Type','Color','Scofflaw Indicator','Suspension Indicator','Revocation Indicator']:
+                    preds.append(f"(self.table.data['{col}'] >= '{min_}')")
+                    preds.append(f"(self.table.data['{col}'] <= '{max_}')")
+                else:
+                    preds.append(f"(self.table.data['{col}'] >= {min_})")
+                    preds.append(f"(self.table.data['{col}'] <= {max_})")
+            query = " & ".join(preds)
+            data, idx = self.Sample(self.table, query)
+            # print(idx)
+            self.Selectivity.append(data.shape[0] / self.table.data.shape[0])
+            self.SampledIdx.extend(idx)
+        print("Sampling Finished!")
+        print("Sampling Data Length: ", len(self.SampledIdx))
+        print("Average Selectivity: ", np.mean(self.Selectivity))
+        
+        
     def Discretize(self, col):
         """Discretize values into its Column's bins.
 
@@ -394,15 +471,16 @@ class BlockDataset_V2(data.Dataset):
             Queries, scan_conds = QueryGeneration(1, self.table.data, self.cols)
             return Queries, scan_conds
         else:
+            
             return self.testQuery, self.testScanConds
 
     def __len__(self):
-        return len(self.testQuery)
+        return len(self.testScanConds)
     
     def __getitem__(self, idx):     
         # 2. Get the query
         #print(self.table.data)
-        Queries, scan_conds = self.getQuery(rand=self.rand)
+        _, scan_conds = self.getQuery(rand=self.rand)
         # print("qcols: ", scan_conds[0][0], "qrange: ", scan_conds[0][1])
         
         # Define the desired size of the padded tensor
@@ -415,14 +493,20 @@ class BlockDataset_V2(data.Dataset):
         # else:
         #     ix = 0
         #     self.train_tuples = self.orig_tuples
-        
+         
+        # Sample data that satisfy the query
+        sample_size = int(self.pad_size / 5) if int(self.pad_size / 5) < len(self.SampledIdx) else len(self.SampledIdx)
+        ix_1 = torch.Tensor(random.sample(self.SampledIdx, sample_size)).long()
         # Sample random data
-        ix = torch.randint(0, self.orig_tuples.shape[0], (self.pad_size,))
-        self.train_tuples = self.orig_tuples[ix]
+        ix_2 = torch.randint(0, self.orig_tuples.shape[0], (self.pad_size - sample_size,))
+        ix = torch.cat([ix_1, ix_2], dim=0)
+        train_tuples = self.orig_tuples[ix]
+        
+        
         
         # FIXME: Padding Columns Number
         # block(batch, card, cols)  query(batch, card, cols)  result(batch, 1)
-        item = {'table': self.train_tuples, \
+        item = {'table': train_tuples, \
                 'table_idx': ix, \
                 'col': scan_conds[idx][0],\
                 'range': scan_conds[idx][1]}
@@ -442,11 +526,11 @@ class BlockDataset_V2(data.Dataset):
     
     def Sample(self, train_data, query):
         # df, Indexed_df = train_data._predicate_data(query)
-        
         predicate_data = train_data.data.loc[eval(query)]
         selected_indices = predicate_data.index
         # return predicate_data, self.tuples_df.loc[selected_indices]
-        return torch.tensor(self.tuples_df.loc[selected_indices].values, dtype=torch.float32)
+        return self.orig_tuples[selected_indices], selected_indices
+        # return torch.tensor(self.tuples_df.loc[selected_indices].values, dtype=torch.float32)
     
     def SampleBasedOnQuery(self, Queries, scan_conds):
         # reserve pad_size dataframe memory
@@ -509,7 +593,7 @@ class BlockDataset_Eval(data.Dataset):
         self.testScanConds = testScanConds
         
     def __getitem__(self, idx):
-        return self.orig_tuples[idx]
+        return self.orig_tuples[idx], idx
     
     def __len__(self):
         return len(self.orig_tuples)    

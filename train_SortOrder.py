@@ -10,7 +10,7 @@ from model.ScanCoster import ScanCostTrainer
 from model.RankingCoster import RankingCostTrainer
 
 
-def load_callbacks():
+def load_callbacks(logger):
     callbacks = []
     # callbacks.append(plc.EarlyStopping(
     #     monitor='val_acc',
@@ -18,14 +18,15 @@ def load_callbacks():
     #     patience=10,
     #     min_delta=0.001
     # ))
-
-    # callbacks.append(plc.ModelCheckpoint(
-    #     monitor='scan',
-    #     filename='best-{epoch:02d}-{val_scan:.3f}',
-    #     save_top_k=1,
-    #     mode='min',
-    #     save_last=True
-    # ))
+    if logger:
+        callbacks.append(plc.ModelCheckpoint(
+            dirpath= logger.experiment.dir,
+            monitor='val_scan',
+            filename='best-{epoch:02d}-{val_scan:.3f}',
+            save_top_k=1,
+            mode='min',
+            save_last=False
+        ))
 
     if args.lr_scheduler:
         callbacks.append(plc.LearningRateMonitor(
@@ -50,16 +51,17 @@ def main(args):
         print("Load from checkpoint: ", args.ckpt_path)
 
     # # If you want to change the logger's saving folder
-    # logger = WandbLogger(name=f"{args.dataset}_SortOrder_V2_Norm_RandTable", save_dir=args.log_dir, project="debug")
-    logger = False
+    logger = WandbLogger(name=f"{args.dataset}_SortOrder_V2_Norm_RandTable_{args.dist}", save_dir=args.log_dir, project="debug")
+    # logger = False
     args.logger = logger
-    args.callbacks = load_callbacks()
+    args.callbacks = load_callbacks(logger)
 
     # trainer = Trainer.from_argparse_args(args, accelerator='gpu', gpus=1, log_every_n_steps=1)
     # trainer = Trainer.from_argparse_args(args, accelerator='gpu', devices=[2], fast_dev_run=True)
     trainer = Trainer.from_argparse_args(args, accelerator='gpu', 
-                                         devices=[2],
-                                        #  strategy=,
+                                         devices=[3],
+                                         accumulate_grad_batches=50,
+                                       #  strategy=,
                                          log_every_n_steps=1, 
                                          gradient_clip_val=0.5, 
                                          check_val_every_n_epoch=args.check_val, 
@@ -91,6 +93,8 @@ if __name__ == '__main__':
     parser.add_argument('--load_v_num', default=None, type=int)
 
     # Training Info
+    parser.add_argument('--sparse', default=False, help='Input sparsity or not', type=bool)
+    parser.add_argument('--dist', default='UNI', choices=[None,'UNI', 'GAU'], type=str)
     parser.add_argument('--pretraining', default=False, type=bool)
     parser.add_argument('--epochs', default=5000, type=int)
     parser.add_argument('--check_val', default=1, type=int)
@@ -98,7 +102,13 @@ if __name__ == '__main__':
     parser.add_argument('--train_block_size', type=int, default='20', help='Block Size of a FS block.')
     parser.add_argument('--test_block_size', type=int, default='20', help='Block Size of a FS block.')
     parser.add_argument('--block_size', type=int, default='20', help='Block Size of a FS block.')
-    parser.add_argument('--dataset', type=str, default='dmv-tiny', choices=['lineitem', 'randomwalk', 'dmv-tiny'], help='Dataset.')
+    parser.add_argument('--dataset', type=str, default='dmv-tiny', choices=['lineitem', 
+                                                                            'randomwalk', 
+                                                                            'randomwalk-bmtree', 
+                                                                            'dmv-tiny',
+                                                                            'dmv',
+                                                                            'GAUData',
+                                                                            'UniData'], help='Dataset.')
     parser.add_argument('--rand', type=str, default=False, help='Whether generate random queries every new batch (for debug purpose).')
     parser.add_argument('--data_dir', default='ref/data', type=str)
     parser.add_argument('--model_name', default='transformer', type=str)

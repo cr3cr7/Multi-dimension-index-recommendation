@@ -93,9 +93,11 @@ class Lambda(nn.Module):
         self.latent_mean = self.hidden_to_mean(cell_output)
         self.latent_logvar = self.hidden_to_logvar(cell_output)
 
-        if self.training:
+        if False and self.training:
+            # add more randomness to latent vector during training for more diversity
+            temperature = 1
             std = torch.exp(0.5 * self.latent_logvar)
-            eps = torch.randn_like(std)
+            eps = temperature * torch.randn_like(std)
             return eps.mul(std).add_(self.latent_mean)
         else:
             return self.latent_mean
@@ -105,16 +107,18 @@ class VAE(nn.Module):
         super(VAE, self).__init__()
         self.col_num = col_num
         self.dmodel = dmodel
+        
+        dmodel = 64
         self.encoder = nn.Sequential(
             nn.Linear(col_num , 32),
             nn.ReLU(),
-            nn.Linear(32, 128),
+            nn.Linear(32, dmodel),
             nn.ReLU()
         )
-        dmodel = 128
-        d_ff = 128
-        num_heads = 2
-        num_blocks = 2
+        
+        d_ff = 32
+        num_heads = 4
+        num_blocks = 4
         activation = "gelu"
         self.encoder_block = nn.Sequential(*[
             Block(dmodel,
@@ -124,17 +128,18 @@ class VAE(nn.Module):
                   do_residual=True)
             for i in range(num_blocks)
         ])
+         # self.latent_dim = int((dmodel * col_num) / 4) 
+        self.latent_dim = 4
         self.decoder_block = nn.Sequential(*[
-            Block(64,
+            Block(self.latent_dim,
                   d_ff,
                   num_heads,
                   activation,
                   do_residual=True)
             for i in range(num_blocks)
         ])
-        # self.latent_dim = int((dmodel * col_num) / 4) 
-        self.latent_dim = 64
-        self.reparameterize = Lambda(128, self.latent_dim)
+
+        self.reparameterize = Lambda(dmodel, self.latent_dim)
         
         self.decoder = nn.Sequential(
             nn.Linear(self.latent_dim, 32),
@@ -153,9 +158,13 @@ class VAE(nn.Module):
         
         mu = self.reparameterize.latent_mean
         logvar = self.reparameterize.latent_logvar
-        loss = self.loss_function(recon_table, table, mu, logvar)
+        # loss = self.loss_function(recon_table, table, mu, logvar)
+        loss = self.loss_function_AE(recon_table, table)
         return loss, z
 
+    def loss_function_AE(self, recon_x, x):
+        """For autoencoder"""
+        return F.mse_loss(recon_x, x)
     
     def loss_function(self, recon_x, x, mu, logvar):
         # recon_loss = F.mse_loss(recon_x, x, size_average=False)
@@ -352,13 +361,23 @@ class RankingModel_v3(nn.Module):
         
         
 class RankingModel_v2(nn.Module):
-    def __init__(self, BlockSize, BlockNum, col_num, dmodel, input_bins):
+    def __init__(self, BlockSize, BlockNum, col_num, dmodel, input_bins, sparse, if_pretraining):
         super(RankingModel_v2, self).__init__()
         self.capacity = BlockSize
         self.BlockNum = BlockNum
         self.col_num = col_num
         self.dmodel = dmodel
         self.input_bins = input_bins
+        self.sparse = sparse
+        self.if_pretraining = if_pretraining
+        
+        # if self.sparse:
+        #     self.SparseLayer = nn.Sequential(
+        #                         nn.Linear(col_num , 32),
+        #                         nn.ReLU(),
+        #                         nn.Linear(32, col_num),
+        #                         nn.ReLU()
+        #                     )
         
         self.model = VAE(col_num, dmodel)
         self.latent_size = self.model.latent_dim
@@ -375,12 +394,12 @@ class RankingModel_v2(nn.Module):
         )
         
         d_model = self.latent_size
-        # d_ff = 256
-        # num_heads = 4
-        # num_blocks = 4
-        d_ff = 128
-        num_heads = 2
-        num_blocks = 2
+        d_ff = 256
+        num_heads = 4
+        num_blocks = 4
+        # d_ff = 128
+        # num_heads = 2
+        # num_blocks = 2
         activation = "gelu"
         self.blocks = nn.Sequential(*[
             Block(d_model,
@@ -395,22 +414,28 @@ class RankingModel_v2(nn.Module):
         self.apply(self._init_weights)
     
     
-    def forward(self, table, BlockSize, current_epoch):
+    def forward(self, table, BlockSize, current_epoch, baseline):
         rows = table.shape[1]
         # table = table.reshape(-1, rows, self.col_num * self.dmodel)
         table = table.reshape(-1, rows, self.col_num)
         # FIXME:让输入在每个维度上归一化, which one is better? (torch.tensor(self.input_bins) and Max(self.input_bins) )
-        # table = table / torch.tensor(self.input_bins)
+        # table = table / torch.tensor(self.input_bins, device=table.device)
         # table = table / max(self.input_bins)
         # table = table / 10
         # FIMXE: Hack For larg tbale --Log transform
         if max(self.input_bins) > 1200:
             table = torch.log(table + 1)
 
+        # if self.sparse:
+        #     table = self.SparseLayer(table)
+        
         loss, z = self.model(table)
         zz = self.blocks(z)
         # print(zz.shape)
         scores = self.MLP(zz).reshape(-1, rows)
+        if self.if_pretraining:
+            baseline = torch.log(baseline + 1)
+            scores = scores * baseline
         # scores = nn.functional.softmax(scores, dim=1)
         
         # For Fast Inference
@@ -420,6 +445,8 @@ class RankingModel_v2(nn.Module):
         min_vals = torch.min(scores, dim=1, keepdim=True)[0]
         max_vals = torch.max(scores, dim=1, keepdim=True)[0]
         scaled_scores = ((scores - min_vals) / (max_vals - min_vals)) * len(table)
+        # scaled_scores = scores
+        
         # regularization_strength = (0.995)**current_epoch
         # regularization_strength = 0.5 * (0.995)**current_epoch
         # if regularization_strength < 0.01:
@@ -533,8 +560,8 @@ class FilterModel_v2(nn.Module):
             # rows = rows.reshape(100, -1)
         rows = torch.stack(indices)
         
-        if rows.shape[1] < 20:
-            rows = torch.cat([rows, torch.zeros(100, 20 - rows.shape[1], dtype=torch.long)], dim=1)
+        # if rows.shape[1] < 20:
+        #     rows = torch.cat([rows, torch.zeros(100, 20 - rows.shape[1], dtype=torch.long)], dim=1)
         return block_diff.unsqueeze(-1).unsqueeze(-1), rows
 
         

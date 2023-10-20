@@ -20,6 +20,9 @@ from model.summarization import FeedFoward, SummarizationModel, Classifier, Embe
 import pandas as pd
 import numpy as np
 import generateQuery
+import json
+import os
+import wandb
 
 class RankingCostTrainer(pl.LightningModule):
     def __init__(self, 
@@ -35,10 +38,14 @@ class RankingCostTrainer(pl.LightningModule):
         
         # self.baseline = pd.read_csv('./datasets/linitem_1000-zorder.csv')
         # self.baseline = pd.read_csv('./datasets/RandomWalk-10K-100Col-zorder.csv')
-        self.baseline = pd.read_csv('./datasets/RandomWalk-1000K-100Col-zorder.csv')
+        # self.baseline = pd.read_csv('./datasets/RandomWalk-1000K-100Col-zorder.csv')
         # self.baseline = pd.read_csv('./datasets/dmv-tiny-zorder.csv')
-        print(self.baseline)
-        
+        # self.baseline = pd.read_csv('./datasets/RandomWalk-10K-100Col-bmp-zorder.csv')
+        # if self.hparams.pretraining:
+        #     self.baseline = pd.read_csv("./datasets/GAUData-1000K-100Col_UNI-zorder.csv")
+            # self.baseline = pd.read_csv('./datasets/dmv-tiny-1000-zorder.csv')
+        # print(self.baseline)
+        self.best_val_scan = float('inf')
         
     def forward(self, table, batch_table_idx, query_cols, val_range):
         # 大小应为 batch_size ，此处手动设置
@@ -48,15 +55,76 @@ class RankingCostTrainer(pl.LightningModule):
         
         # table = self.embedding_model(table.to(torch.int))
         if isinstance(self.ranking_model, RankingModel_v4) or isinstance(self.ranking_model, RankingModel_v2):
-            original_rank, data2id, distance, recont_loss = self.ranking_model(table, self.hparams.train_block_size, self.current_epoch)
+            if self.hparams.pretraining:
+                baseline = torch.cat([torch.from_numpy(self.baseline.iloc[batch_idx.cpu().numpy()]['zvalue'].values).unsqueeze(0) for batch_idx in batch_table_idx]).to(self.device)
+            else:
+                baseline = None
+            original_rank, data2id, distance, recont_loss = self.ranking_model(table,
+                                                                            self.hparams.train_block_size, 
+                                                                            self.current_epoch,
+                                                                            baseline)
         else:
             original_rank, data2id, distance = self.ranking_model(table, self.hparams.train_block_size, self.current_epoch)
         # data2id = self.ranking_model(table)
         # cost = data2id.clone().detach()
         # total_cost = data2id - cost
         total_cost = torch.zeros_like(data2id)
+
+        # print(original_rank[0].reshape(-1))
+        # reduce last dim
+        # scan_bitmap = np.squeeze(np.zeros(data2id.shape))
+        # for one_batch_index in range(len(val_range)):
+        #     batch_idx = batch_table_idx[one_batch_index]
+        #     batch_table = self.trainset.table.data.iloc[batch_idx.cpu().numpy()].reset_index(drop=True)
+            
+        #     # batch_table = self.table_dataset.table.data
+        #     one_batch_query_cols = query_cols[one_batch_index]
+        #     one_batch_val_ranges = val_range[one_batch_index]
+            
+        #     # Construct Scan_bitmap
+        #     # val_range to query
+        #     preds = []
+        #     for col, (min_, max_) in zip(one_batch_query_cols, one_batch_val_ranges):
+        #         if col in ['Reg Valid Date', 'Reg Expiration Date', 'VIN', 'County', 'City'] \
+        #             + ['Record Type','Registration Class','State','County','Body Type','Fuel Type','Color','Scofflaw Indicator','Suspension Indicator','Revocation Indicator']:
+        #             preds.append(f"(batch_table['{col}'] >= '{min_}')")
+        #             preds.append(f"(batch_table['{col}'] <= '{max_}')")
+        #         else:
+        #             preds.append(f"(batch_table['{col}'] >= {min_})")
+        #             preds.append(f"(batch_table['{col}'] <= {max_})")
+                
+        #     query = " & ".join(preds)
+        #     scan_bitmap[one_batch_index, :] = eval(query)
+        # loss = 0
+        # for cur_batch, cur_bitmap in enumerate(scan_bitmap):
+        #     cur_bitmap = torch.from_numpy(cur_bitmap.reshape(-1)).to(self.device)
+        #     cur_rank = original_rank[cur_batch].view(-1)
+        #     #find place cur_bitmap is 1
+        #     indices = torch.where(cur_bitmap == 1)[0]
+        #     # get the rank and sort
+        #     sorted_indices = indices[torch.argsort(cur_rank[indices], descending=True)]
+        #     # get the rank
+        #     query_section = cur_rank[sorted_indices]
+        #     if len(query_section) > 1:
+        #         # get the diff
+        #         diff_list = [x - y for x, y in zip(query_section[:-1], query_section[1:]) if (x - y) > 0.2]
+        #         local_cost = sum(diff_list)
+        #         # get the entropy of diff_list
+        #         entropy = - sum([x / local_cost * torch.log(x / local_cost) for x in diff_list]) 
+        #         cur_loss = local_cost * entropy
+        #         loss += cur_loss  
+        # self.log('Cost/cost', loss, on_step=True, on_epoch=True, prog_bar=True)
+        
+        # recont_loss = recont_loss / 100
+        
+        # self.log('recont_loss', recont_loss, on_step=True, on_epoch=True, prog_bar=True)
+        # return loss  + recont_loss
+        # return loss 
         
         # TODO:这一段需要做加速
+        # Initialize MinMaxPair
+        min_max_pair = [[] for _ in range(data2id.shape[0])]
+        encourage_min_max_pair = [[] for _ in range(data2id.shape[0])]
         for one_batch_index in range(len(val_range)):
             # start_idx = int(batch_table_idx[one_batch_index])
             # batch_table = self.table_dataset.table.data[start_idx: self.hparams.pad_size + start_idx].reset_index(drop=True)
@@ -73,10 +141,10 @@ class RankingCostTrainer(pl.LightningModule):
                 block_id, indices = self.filter_model(data2id, id)
                 indices = indices.cpu().numpy()  
 
-                one_batch_block_df = batch_table.loc[indices[one_batch_index],:]
+                one_batch_block_df = batch_table.iloc[indices[one_batch_index],:]
 
                 if id + 1 < self.train_block_nums:
-                    assert one_batch_block_df.shape[0] == self.hparams.train_block_size, 'Block Size Error'
+                    assert one_batch_block_df.shape[0] == self.hparams.train_block_size, f'Block Size Error: {one_batch_block_df.shape[0]}'
                 
                 is_scan = True                
                 for idx, q in enumerate(one_batch_query_cols):
@@ -85,17 +153,84 @@ class RankingCostTrainer(pl.LightningModule):
                         max_range = pd.to_datetime(one_batch_val_ranges[idx][1])
                         if one_batch_block_df[q].min() > max_range or one_batch_block_df[q].max() < min_range:
                             is_scan = False
-                            break
+                            # add to encourage_min_max_pair
+                            if pd.api.types.is_numeric_dtype(one_batch_block_df[q]) \
+                                or pd.api.types.is_datetime64_any_dtype(one_batch_block_df[q]):
+                                min_index = one_batch_block_df[q].idxmin()
+                                max_index = one_batch_block_df[q].idxmax()
+                                encourage_min_max_pair[one_batch_index].append((min_index, max_index))
+                            elif pd.api.types.is_object_dtype(one_batch_block_df[q]):
+                                min_index = one_batch_block_df[q].values.argmin()
+                                max_index = one_batch_block_df[q].values.argmax()
+                                encourage_min_max_pair[one_batch_index].append((min_index, max_index))
+                            else:
+                                raise NotImplementedError
+                            # 注释break 为了让所有的cols都能加入encourage_min_max_pair
+                            # break
                         continue
                     if one_batch_block_df[q].min() > one_batch_val_ranges[idx][1] or one_batch_block_df[q].max() < one_batch_val_ranges[idx][0]:
                         is_scan = False
-                        break
+                        # add to encourage_min_max_pair
+                        if pd.api.types.is_numeric_dtype(one_batch_block_df[q]) \
+                            or pd.api.types.is_datetime64_any_dtype(one_batch_block_df[q]):
+                            min_index = one_batch_block_df[q].idxmin()
+                            max_index = one_batch_block_df[q].idxmax()
+                            encourage_min_max_pair[one_batch_index].append((min_index, max_index))
+                        elif pd.api.types.is_object_dtype(one_batch_block_df[q]):
+                            min_index = one_batch_block_df[q].values.argmin()
+                            max_index = one_batch_block_df[q].values.argmax()
+                            encourage_min_max_pair[one_batch_index].append((min_index, max_index))
+                        else:
+                            raise NotImplementedError
+                        # 注释break 为了让所有的cols都能加入encourage_min_max_pair
+                        # break
                 if is_scan:
                     total_cost[one_batch_index, indices[one_batch_index]] = 1
-                    # cost[one_batch_index, indices[one_batch_index]] = 1
+                    # Find MinMax Pair in this block
+                    for col in one_batch_query_cols:
+                        if pd.api.types.is_numeric_dtype(one_batch_block_df[col]) \
+                            or pd.api.types.is_datetime64_any_dtype(one_batch_block_df[col]):
+                            min_index = one_batch_block_df[col].idxmin()
+                            max_index = one_batch_block_df[col].idxmax()
+                            min_max_pair[one_batch_index].append((min_index, max_index))
+                        elif pd.api.types.is_object_dtype(one_batch_block_df[col]):
+                            min_index = one_batch_block_df[col].values.argmin()
+                            max_index = one_batch_block_df[col].values.argmax()
+                            min_max_pair[one_batch_index].append((min_index, max_index))
+                        else:
+                            raise NotImplementedError
+                        
+
             # total_cost = total_cost + cost
         
+        ###### LOSS ######
+        # loss = 0
+        # for cur_batch, one_batch in enumerate(original_rank * total_cost):
+        #     one_batch = one_batch.view(-1)
+        #     indices = one_batch.nonzero().reshape(-1)
+        #     sorted_indices = indices[torch.argsort(one_batch[indices], descending=True)]
+        
+        #     query_section = one_batch[sorted_indices]
+        #     if len(query_section) > 1:
+        #         # get the diff
+        #         diff_list = [x - y for x, y in zip(query_section[:-1], query_section[1:]) if (x - y) > 0.2]
+        #         local_cost = sum(diff_list)
+        #         # get the entropy of diff_list
+        #         entropy = - sum([x / local_cost * torch.log(x / local_cost) for x in diff_list]) 
+        #         cur_loss = local_cost * entropy
+        #         loss += cur_loss
+        # self.log('Cost/cost', loss, on_step=True, on_epoch=True, prog_bar=True)
+        
+        # recont_loss = recont_loss
+        
+        # self.log('recont_loss', recont_loss, on_step=True, on_epoch=True, prog_bar=True)
+        # return loss + recont_loss
+        # return loss
+        ###### LOSS ######
+        
+        
         # TODO: 是否要对Loss改进？让收敛更好
+        min_max_loss = 0
         all_loss = 0
         all_regular_loss = 0
         for cur_batch, one_batch in enumerate(original_rank * total_cost):
@@ -106,17 +241,35 @@ class RankingCostTrainer(pl.LightningModule):
             one_batch = one_batch.view(-1)
             indices = one_batch.nonzero().reshape(-1)
             sorted_indices = indices[torch.argsort(one_batch[indices], descending=True)]
-            if len(sorted_indices) > 0:
-                loss += one_batch[sorted_indices[0]] - one_batch[sorted_indices[-1]]
+            current_min_max_pair = min_max_pair[cur_batch]
+            current_encourage_min_max_pair = encourage_min_max_pair[cur_batch]
+            # cur_bitmap = scan_bitmap[cur_batch]
+            # if len(sorted_indices) > 0:
+            #     loss += one_batch[sorted_indices[0]] - one_batch[sorted_indices[-1]]
+            
+            # Add MinMax Loss
+            for min_index, max_index in current_min_max_pair:
+                loss = loss - torch.abs(one_batch[min_index] - one_batch[max_index])
+            # Add Encourage MinMax Loss
+            for min_index, max_index in current_encourage_min_max_pair:
+                loss = loss + torch.abs(one_batch[min_index] - one_batch[max_index])
+            
             # for i in range(len(sorted_indices) - 1):
             #     if (i % self.hparams.train_block_size == (self.hparams.train_block_size - 1)):
             #         continue
-            #     # print(one_batch[sorted_indices[i]], one_batch[sorted_indices[i + 1]], one_batch[sorted_indices[i]] - one_batch[sorted_indices[i + 1]])
             #     loss += torch.abs(one_batch[sorted_indices[i]] - one_batch[sorted_indices[i + 1]])
+                
+            #     # Add bitmap filtering
+            #     # if cur_bitmap[sorted_indices[i]] == 1 and cur_bitmap[sorted_indices[i + 1]] == 1:
+            #     #     loss += torch.abs(one_batch[sorted_indices[i]] - one_batch[sorted_indices[i + 1]])
+                
             #     if torch.is_tensor(distance):
             #         regular_loss += torch.abs(cur_dis[sorted_indices[i]] - cur_dis[sorted_indices[i + 1]])
             #     # loss += F.l1_loss(one_batch[sorted_indices[i]], one_batch[sorted_indices[i + 1]])
-            loss += len(sorted_indices) / self.hparams.train_block_size
+            # # diff_list = [x - y for x, y in zip(To_loss[:-1], To_loss[1:])]
+            
+            # loss += len(sorted_indices) / self.hparams.train_block_size
+            # loss += sum(diff_list)
 
             # assert 0       
             # loss = one_batch[sorted_indices[-1]]
@@ -147,21 +300,33 @@ class RankingCostTrainer(pl.LightningModule):
         # assert 0
         # return all_loss
         if isinstance(self.ranking_model, RankingModel_v4) or isinstance(self.ranking_model, RankingModel_v2):
-            recont_loss = recont_loss / (100)
+            recont_loss = recont_loss / 100
             # recont_loss = recont_loss
             self.log_dict({'cluster_loss': all_loss, 'recont_loss': recont_loss}, on_step=True, on_epoch=True, prog_bar=True)
             # return all_loss + recont_loss
             # print("Loss")
             # print(all_loss, recont_loss, regular_loss)
+            if self.hparams.sparse:
+                l1_lambda = 0.01
+                # l1_norm = sum(torch.abs(param) for param in self.ranking_model.SparseLayer.parameters())
+                # l1_norm = torch.norm(self.ranking_model.SparseLayer.parameters(), 1)
+                l1_norm = 0
+                for param in self.ranking_model.model.encoder.parameters():
+                    if param.dim() > 1:
+                        l1_norm = l1_norm + param.norm(1)
+                L1_loss = l1_lambda * l1_norm
+                self.log_dict({'L1_loss': L1_loss}, on_step=True, on_epoch=True, prog_bar=True)
+                return all_loss + recont_loss + L1_loss
+            
             return all_loss + recont_loss
             # return all_loss
-        
+                        
         return all_loss - 100 * regular_loss
         # return total_scan.sum() / total_cost.sum()
 
     def training_step(self, batch, batch_idx):
-        # Testing
-        if self.hparams.pretraining and self.current_epoch < 120:
+        # Testing [Deprecated]
+        if False and self.hparams.pretraining and self.current_epoch < 120:
             # Ours
             assert len(self.baseline) == len(self.trainset.table.data)
             table = batch['table']
@@ -221,6 +386,8 @@ class RankingCostTrainer(pl.LightningModule):
         scan = self(table, batch_table_idx, query_cols, val_range)
         
         # scan = scan.sum() / self.hparams.batch_size
+        if scan == 0 and not isinstance(scan, torch.Tensor):
+            return None
         
         self.log('scan', scan, on_step=True, on_epoch=True, prog_bar=True)
         return scan
@@ -256,6 +423,8 @@ class RankingCostTrainer(pl.LightningModule):
                 
                 is_scan = True
                 for idx, q in enumerate(one_batch_query_cols):
+                    if q == '111':
+                        break
                     if q == 'Reg Valid Date' or q == 'Reg Expiration Date':
                         min_range = pd.to_datetime(one_batch_val_ranges[idx][0])
                         max_range = pd.to_datetime(one_batch_val_ranges[idx][1])
@@ -268,17 +437,29 @@ class RankingCostTrainer(pl.LightningModule):
                         break
                 if is_scan:
                     scan += 1
-                
-        
+        if (self.logger is not None) and (self.best_val_scan > scan):
+            score_path = os.path.join(self.logger.experiment.dir,
+                                    'best_score.json')
+            with open(score_path, 'w') as f:
+                # Files saved to wandb's rundir are auto-uploaded.
+                cur_score = [scan] + scores.cpu().numpy().tolist()
+                json.dump(cur_score, f)
+            self.best_val_scan = scan
         # Free Memory
         self.validation_step_outputs.clear()
-        self.log_dict({'val_scan': scan}, on_epoch=True, prog_bar=True)
+        self.log_dict({'val_scan': float(scan)}, on_epoch=True, prog_bar=True)
         
         
     def validation_step(self, batch, batch_idx):
+        batch, table_idx = batch
         batch = batch.unsqueeze(0)
         # table = self.embedding_model(table.to(torch.int))
-        scores = self.ranking_model(batch, self.hparams.test_block_size, self.current_epoch)
+        if self.hparams.pretraining:
+            baseline = self.baseline.iloc[table_idx.cpu().numpy()]
+            baseline = torch.from_numpy(baseline['zvalue'].values).to(self.device)
+        else:
+            baseline = None
+        scores = self.ranking_model(batch, self.hparams.test_block_size, self.current_epoch, baseline)
         self.validation_step_outputs.append(scores)
 
 
@@ -328,17 +509,31 @@ class RankingCostTrainer(pl.LightningModule):
         elif dataset == 'dmv-tiny':
             table = datasets.LoadDmv('dmv-tiny.csv')
         elif dataset == 'dmv':
-            table = datasets.LoadDmv('DMV_1000.csv')
+            table = datasets.LoadDmv('dmv-clean.csv')
         elif dataset == 'lineitem':
             table = datasets.LoadLineitem('linitem_1000.csv', cols=['l_orderkey', 'l_partkey'])
         elif dataset == 'randomwalk':
             # table = datasets.LoadRandomWalk(100, 10000)
-            table = datasets.LoadRandomWalk(100, int(1e6))
+            table = datasets.LoadRandomWalk(100, int(1e6), dist=self.hparams.dist)
+        elif dataset == "randomwalk-bmtree":
+            table = datasets.LoadRandomWalkBMTree(100, 10000)
+        elif dataset == "GAUData".lower():
+            # table = datasets.LoadGAUDataset(10, int(10000), dist=self.hparams.dist, zvalue=False)
+            table = datasets.LoadGAUDataset(100, int(1e6), dist=self.hparams.dist, zvalue=False)
+        elif dataset == "UniData".lower():
+            table = datasets.LoadUniformData('uniform_1000000.json', zvalue=False)
         else:
             raise ValueError(
                 f'Invalid Dataset File Name or Invalid Class Name data.{dataset}')
         print("Table Len:", len(table.data))
         print(table.data.info())
+        
+        if self.hparams.pretraining:
+            path = "./datasets/"
+            baseline_name = f'{table.name}-zorder.csv'
+            self.baseline = pd.read_csv(path + baseline_name)
+            assert 'zvalue' in self.baseline.columns
+            print("*"*50 + " Load Baseline: ", baseline_name)
         # self.data_module = TableDataset(table)
         # Assign train/val datasets for use in dataloaders
         self.cols = table.ColumnNames()
@@ -367,7 +562,9 @@ class RankingCostTrainer(pl.LightningModule):
                                              self.train_block_nums, 
                                              len(self.cols), 
                                              self.hparams.dmodel,
-                                             input_bins=[c.DistributionSize()+1 for c in columns])
+                                             input_bins=[c.DistributionSize()+1 for c in columns],
+                                             sparse=self.hparams.sparse,
+                                             if_pretraining=self.hparams.pretraining)
         # self.ranking_model = RankingModel_v3(len(self.cols), self.hparams.dmodel)
         # self.ranking_model = RankingModel_v4(len(self.cols), self.hparams.dmodel, 
         #                                      input_bins=[c.DistributionSize()+1 for c in columns])

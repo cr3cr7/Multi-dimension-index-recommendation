@@ -6,5 +6,9 @@ Multi-dimension-index-recommendation
 python train_SortOrder.py --dataset randomwalk --check_val 5 --epochs 5000 \
 --pad_size 1000 --train_block_size 50 --test_block_size 200
 
-python train_SortOrder.py --dataset randomwalk --check_val 20 --pad_size 1000 --train_block_size 60 --test_block_size 60000 --epochs 50000
+python train_SortOrder.py --dataset randomwalk --check_val 20 --pad_size 1000 --train_block_size 60 --test_block_size 60000 --epochs 50000 --dist GAU
+
+python train_SortOrder.py --dataset randomwalk-bmtree --check_val 10 --pad_size 1000 --train_block_size 5 --test_block_size 50 --epochs 50000 -pretraining False --dist GAU
+
+python train_SortOrder.py --dataset UniData --check_val 5 --pad_size 1000 --train_block_size 10 --test_block_size 10000 --epochs 50000 --dist UNI
 ```
