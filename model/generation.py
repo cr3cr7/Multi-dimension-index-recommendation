@@ -16,6 +16,31 @@ from model.transformer import Block
 
 from sklearn.cluster import estimate_bandwidth, AgglomerativeClustering, KMeans
 
+class InputDimAttention(nn.Module):
+    def __init__(self, input_dim):
+        super(InputDimAttention, self).__init__()
+        # Define a small feed-forward network to compute attention weights
+        self.attention_network = nn.Sequential(
+            nn.Linear(input_dim, input_dim // 2),
+            nn.ReLU(),
+            nn.Linear(input_dim // 2, input_dim),
+        )
+        
+    def forward(self, x):
+        # x shape: (batch_size, seq_length, input_dim)
+        
+        # Apply attention network to compute scores
+        attention_scores = self.attention_network(x)
+        
+        # Compute attention weights using softmax
+        attention_weights = F.softmax(attention_scores, dim=-1)
+        
+        # Apply attention weights
+        out = x * attention_weights
+        
+        return out
+
+
 class RankingModel(nn.Module):
     def __init__(self, BlockSize, BlockNum, col_num, dmodel):
         super(RankingModel, self).__init__()
@@ -94,6 +119,7 @@ class Lambda(nn.Module):
         self.latent_logvar = self.hidden_to_logvar(cell_output)
 
         if False and self.training:
+        # if self.training:    
             # add more randomness to latent vector during training for more diversity
             temperature = 1
             std = torch.exp(0.5 * self.latent_logvar)
@@ -112,12 +138,14 @@ class VAE(nn.Module):
         self.encoder = nn.Sequential(
             nn.Linear(col_num , 32),
             nn.ReLU(),
+            # nn.Dropout(0.1),
             nn.Linear(32, dmodel),
             nn.ReLU()
+            # nn.Dropout(0.1)
         )
         
         d_ff = 32
-        num_heads = 4
+        num_heads = 8
         num_blocks = 4
         activation = "gelu"
         self.encoder_block = nn.Sequential(*[
@@ -129,7 +157,7 @@ class VAE(nn.Module):
             for i in range(num_blocks)
         ])
          # self.latent_dim = int((dmodel * col_num) / 4) 
-        self.latent_dim = 4
+        self.latent_dim = 16
         self.decoder_block = nn.Sequential(*[
             Block(self.latent_dim,
                   d_ff,
@@ -371,13 +399,9 @@ class RankingModel_v2(nn.Module):
         self.sparse = sparse
         self.if_pretraining = if_pretraining
         
-        # if self.sparse:
-        #     self.SparseLayer = nn.Sequential(
-        #                         nn.Linear(col_num , 32),
-        #                         nn.ReLU(),
-        #                         nn.Linear(32, col_num),
-        #                         nn.ReLU()
-        #                     )
+        if self.sparse:
+            self.SparseLayer = InputDimAttention(input_dim=col_num)
+        
         
         self.model = VAE(col_num, dmodel)
         self.latent_size = self.model.latent_dim
@@ -395,7 +419,7 @@ class RankingModel_v2(nn.Module):
         
         d_model = self.latent_size
         d_ff = 256
-        num_heads = 4
+        num_heads = 8
         num_blocks = 4
         # d_ff = 128
         # num_heads = 2
@@ -426,8 +450,8 @@ class RankingModel_v2(nn.Module):
         if max(self.input_bins) > 1200:
             table = torch.log(table + 1)
 
-        # if self.sparse:
-        #     table = self.SparseLayer(table)
+        if self.sparse:
+            table = self.SparseLayer(table)
         
         loss, z = self.model(table)
         zz = self.blocks(z)

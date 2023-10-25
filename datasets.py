@@ -8,29 +8,30 @@ from scipy.stats import skewnorm
 import common
 
 # 读取自己的数据集
-def LoadDmv(filename='Vehicle__Snowmobile__and_Boat_Registrations.csv'):
-   csv_file = './datasets/{}'.format(filename)
-   cols = ['Record Type', 'VIN', 'Registration Class', 'City', 'State', 'Zip', 'County', 
+def LoadDmv(filename='dmv-clean.csv', 
+            cols=['VIN','City','Zip','County','Reg Valid Date','Reg Expiration Date', 'zvalue'], zvalue=True, dist=None):
+    csv_file = './datasets/{}'.format(filename)
+    cols = ['Record Type', 'VIN', 'Registration Class', 'City', 'State', 'Zip', 'County', 
             'Body Type', 'Fuel Type', 'Reg Valid Date', 'Reg Expiration Date', 'Color',
             'Scofflaw Indicator', 'Suspension Indicator', 'Revocation Indicator']  
-   cols = [cols[1], cols[3], cols[5], cols[6], cols[9], cols[10]]
-   if 'dmv-clean' in filename:
+    cols = [cols[1], cols[3], cols[5], cols[6], cols[9], cols[10]]
+    if 'dmv-clean' in filename:
        cols = ['Record Type','Registration Class','State','County','Body Type','Fuel Type','Reg Valid Date','Color','Scofflaw Indicator','Suspension Indicator','Revocation Indicator']
-   # cols = [cols[1], cols[3], cols[5]]
-#    cols = [cols[1], cols[3]]
-   # cols = ['Reg Valid Date', 'Color', 'State']
-   # cols = ['Color', 'State']
-   """ cols = ['l_orderkey', 'l_partkey', 'l_suppkey', 'l_linenumber', 'l_quantity',
-       'l_extendedprice', 'l_discount', 'l_tax', 'l_returnflag',
-       'l_linestatus', 'l_shipdate', 'l_commitdate', 'l_receiptdate',
-       'l_shipinstruct', 'l_shipmode', 'l_comment'] """
     
-   # Note: other columns are converted to objects/strings automatically.  We
-   # don't need to specify a type-cast for those because the desired order
-   # there is the same as the default str-ordering (lexicographical).
-   type_casts = {'Reg Valid Date': np.datetime64, 'Reg Expiration Date': np.datetime64}
-   # return common.CsvTable('DMV', csv_file, cols)
-   return common.CsvTable(filename.split('.')[0], csv_file, cols, type_casts, nrows=1000000)
+    if zvalue:
+        cols.append('zvalue')
+        csv_file = csv_file.split('.csv')[0] + "-zorder.csv"
+    # cols = ['VIN','City','Zip','County','Reg Valid Date','Reg Expiration Date', 'zvalue']
+    # Note: other columns are converted to objects/strings automatically.  We
+    # don't need to specify a type-cast for those because the desired order
+    # there is the same as the default str-ordering (lexicographical).
+    type_casts = {'Reg Valid Date': np.datetime64, 'Reg Expiration Date': np.datetime64}
+    
+    filename = filename.split('.')[0]
+    if dist:
+        filename = f'{filename}_{dist}'
+    return common.CsvTable(filename, csv_file, cols, type_casts, nrows=1000000)
+
 
 def LoadLineitem(filename='lineitem.csv', cols=[]):
    '''
@@ -150,6 +151,15 @@ def LoadGAUDataset(colsNum, rowNum, dist="UNI", zvalue=False):
         df.to_csv(f'./datasets/{filename}', header=True, index=False)
         # np.savetxt(, position, delimiter=',', header=','.join(cols))
         return common.CsvTable(tablename, df, cols, sep=',')
+
+
+def process_ecg_tiny(file_path='ptbdb_normal.csv'):
+    file_path = './datasets/{}'.format(file_path)
+    colnames = list(map(str, range(188)))
+    data = pd.read_csv(file_path, header=None, names=colnames)
+    print(data.shape)
+    cols = list(map(str, range(data.shape[1])))
+    return common.CsvTable('ECG', data, cols, sep=',')
 
 if __name__ == '__main__':
    # table = LoadDmv('dmv-clean.csv')

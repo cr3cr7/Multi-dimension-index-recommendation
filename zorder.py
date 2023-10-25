@@ -76,7 +76,7 @@ def ZorderBlock(df, cols, block_size, dist):
         if 'zvalue' in cols:
             # remove
             cols.remove('zvalue')
-        Queries, scan_conds = QueryGeneration(100, df.loc[:, cols], cols, dist=dist, query_cols_nums=8)
+        Queries, scan_conds = QueryGeneration(100, df.loc[:, cols], cols, dist=dist, query_cols_nums=3)
         # pickle.dump(Queries, open(f"./datasets/Queries_{name}.pkl", "wb"))
         # pickle.dump(Queries, open(f"./datasets/Queries_{cols_num}Cols.pkl", "wb"))
         pickle.dump(scan_conds, open(save_path, "wb"))
@@ -100,7 +100,7 @@ def ZorderBlock(df, cols, block_size, dist):
 
 
 def LoadDmv(filename='dmv-clean.csv', 
-            cols=['VIN','City','Zip','County','Reg Valid Date','Reg Expiration Date', 'zvalue'], zvalue=True):
+            cols=['VIN','City','Zip','County','Reg Valid Date','Reg Expiration Date', 'zvalue'], zvalue=True, dist=None):
     csv_file = './datasets/{}'.format(filename)
     if zvalue:
         cols.append('zvalue')
@@ -110,7 +110,11 @@ def LoadDmv(filename='dmv-clean.csv',
     # don't need to specify a type-cast for those because the desired order
     # there is the same as the default str-ordering (lexicographical).
     type_casts = {'Reg Valid Date': np.datetime64, 'Reg Expiration Date': np.datetime64}
-    return common.CsvTable('dmv-clean', csv_file, cols, type_casts, nrows=1000000)
+    
+    filename = 'dmv-clean'
+    if dist:
+        filename = f'{filename}_{dist}'
+    return common.CsvTable(filename, csv_file, cols, type_casts, nrows=1000000)
 
 def LoadLineitem(filename, cols):
     csv_file = './datasets/{}'.format(filename)
@@ -178,21 +182,24 @@ def process_ecg(input_dir):
     with open(f'{input_dir}/RECORDS', 'r') as f:
         for idx, p in enumerate(f):
             p = p.strip()
-        pattern = r"patient(\d+)"
-        match = re.search(pattern, p)
-        if match:
-            patient_id = int(match.group(1))
-        else:
-            raise ValueError("Patient ID couldn't have been extracted.")
-        path = os.path.join(f"{input_dir}", p)
-        data = wfdb.rdsamp(path)
-        print(data)
-        assert 0
+            pattern = r"patient(\d+)"
+            match = re.search(pattern, p)
+            if match:
+                patient_id = int(match.group(1))
+            else:
+                raise ValueError("Patient ID couldn't have been extracted.")
+            path = os.path.join(f"{input_dir}", p)
+            data = wfdb.rdsamp(path)
+            # print(data)
+            print(data[0].shape)
+            # assert 0
 
 def process_ecg_tiny(file_path):
-    data = pd.read_csv(file_path)
-    print(data)
-    assert 0
+    colnames = list(map(str, range(188)))
+    data = pd.read_csv(file_path, header=None, names=colnames)
+    print(data.shape)
+    cols = list(map(str, range(data.shape[1])))
+    return common.CsvTable('ECG', data, cols, sep=',')
 
 
         
@@ -211,29 +218,31 @@ if __name__ == "__main__":
     all_cols = ['Record Type','Registration Class','State','County','Body Type','Fuel Type','Reg Valid Date','Color','Scofflaw Indicator','Suspension Indicator','Revocation Indicator']
     # Zorder(df, cols, original_df=original_df)
     
-    block_size = 10000
+    block_size = 200
     # block_size = 200
     # dist = 'GAU'
     dist = "UNI"
     
 
     rowNum = int(1e6)
-    colsNum = 100
+    colsNum = 188
     cols = ['0', '1', '2']
     all_cols = list(map(str, range(colsNum)))
     # name = f'RandomWalk-{int(rowNum/1000)}K-{colsNum}Col.csv'.split(".")[0]
-    name = f'GAUData-{int(rowNum/1000)}K-{colsNum}Col_{dist}'
+    # name = f'GAUData-{int(rowNum/1000)}K-{colsNum}Col_{dist}'
     # name = 'dmv-tiny'
     # name = 'dmv-clean'
     # name  = 'linitem_1000'
     # table = LoadLineitem(f"{name}.csv", cols=cols)
-    # table = LoadDmv("dmv-clean.csv", cols=all_cols)
-    # table = datasets.LoadRandomWalk(colsNum, rowNum, dist=dist, zvalue=True)
-    table = datasets.LoadGAUDataset(colsNum, rowNum, dist, zvalue=True)
+    # table = LoadDmv("dmv-clean.csv", cols=all_cols, dist=dist)
+    # table = datasets.LoadRandomWalk(colsNum, rowNum, dist=dist, zvalue=False)
+    # table = datasets.LoadGAUDataset(colsNum, rowNum, dist, zvalue=False)
+    table = process_ecg_tiny("./datasets/ptbdb_normal.csv")
     # table = datasets.LoadRandomWalk(100, int(1e6))
     df = common.TableDataset(table).tuples_df
     Zorder(df, cols, original_df=table.data, name=table.name)
     # print(table.data)
+    name = table.name
     # all_cols = cols
     ZorderBlock(table.data, all_cols, block_size, dist=dist)
 

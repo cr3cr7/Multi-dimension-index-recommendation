@@ -369,12 +369,10 @@ class BlockDataset_V2(data.Dataset):
         cols_num = len(cols)
         if "dmv" in table.name or "Lineitem" in table.name:
             save_path = f"./datasets/scan_condation_{cols_num}Cols.pkl"
-            if table.name == 'dmv-clean':
-                save_path = f'./datasets/scan_condation_{table.name}_UNI.pkl'
+            if 'dmv-clean' in table.name:
+                save_path = f'./datasets/scan_condation_{table.name}.pkl'
         else:
             save_path = f'./datasets/scan_condation_{table.name}.pkl'
-            if table.name == 'dmv-clean':
-                save_path = f'./datasets/scan_condation_{table.name}_UNI.pkl'
         if not os.path.exists(save_path):
             raise ValueError(f"Scan condation file {save_path} not exists!")
             self.testQuery, self.testScanConds = QueryGeneration(100, self.table.data.loc[:, cols], self.cols)
@@ -495,8 +493,13 @@ class BlockDataset_V2(data.Dataset):
         #     self.train_tuples = self.orig_tuples
          
         # Sample data that satisfy the query
-        sample_size = int(self.pad_size / 5) if int(self.pad_size / 5) < len(self.SampledIdx) else len(self.SampledIdx)
+        sample_size = int(self.pad_size / 2) if int(self.pad_size / 2) < len(self.SampledIdx) else len(self.SampledIdx)
         ix_1 = torch.Tensor(random.sample(self.SampledIdx, sample_size)).long()
+        
+        # No Sample
+        # sample_size = 0
+        # ix_1 = torch.Tensor([]).long()
+        
         # Sample random data
         ix_2 = torch.randint(0, self.orig_tuples.shape[0], (self.pad_size - sample_size,))
         ix = torch.cat([ix_1, ix_2], dim=0)

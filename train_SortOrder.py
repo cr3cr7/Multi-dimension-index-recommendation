@@ -59,8 +59,8 @@ def main(args):
     # trainer = Trainer.from_argparse_args(args, accelerator='gpu', gpus=1, log_every_n_steps=1)
     # trainer = Trainer.from_argparse_args(args, accelerator='gpu', devices=[2], fast_dev_run=True)
     trainer = Trainer.from_argparse_args(args, accelerator='gpu', 
-                                         devices=[3],
-                                         accumulate_grad_batches=50,
+                                         devices=[1],
+                                         accumulate_grad_batches=100,
                                        #  strategy=,
                                          log_every_n_steps=1, 
                                          gradient_clip_val=0.5, 
@@ -81,9 +81,9 @@ if __name__ == '__main__':
 
     # LR Scheduler
     parser.add_argument('--lr_scheduler', default=None, choices=['step', 'cosine', 'onecycler'], type=str)
-    parser.add_argument('--lr_decay_steps', default=50, type=int)
+    parser.add_argument('--lr_decay_steps', default=100, type=int)
     parser.add_argument('--lr_decay_rate', default=0.5, type=float)
-    parser.add_argument('--lr_decay_min_lr', default=1e-5, type=float)
+    parser.add_argument('--lr_decay_min_lr', default=0.5e-3, type=float)
 
     # Restart Control
     parser.add_argument('--load_path', default=None, type=str)
@@ -108,7 +108,8 @@ if __name__ == '__main__':
                                                                             'dmv-tiny',
                                                                             'dmv',
                                                                             'GAUData',
-                                                                            'UniData'], help='Dataset.')
+                                                                            'UniData',
+                                                                            'ECG'], help='Dataset.')
     parser.add_argument('--rand', type=str, default=False, help='Whether generate random queries every new batch (for debug purpose).')
     parser.add_argument('--data_dir', default='ref/data', type=str)
     parser.add_argument('--model_name', default='transformer', type=str)

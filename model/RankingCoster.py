@@ -248,12 +248,34 @@ class RankingCostTrainer(pl.LightningModule):
             #     loss += one_batch[sorted_indices[0]] - one_batch[sorted_indices[-1]]
             
             # Add MinMax Loss
+            away_loss = []
             for min_index, max_index in current_min_max_pair:
                 loss = loss - torch.abs(one_batch[min_index] - one_batch[max_index])
+                # away_loss.append(torch.abs(one_batch[min_index] - one_batch[max_index]))
+            # if len(away_loss) > 0:
+                # loss = loss - torch.mean(torch.stack(away_loss))
+            # if len(away_loss) > 0:
+            #     away_loss = torch.sum(torch.stack(away_loss))
+            # else:
+            #     away_loss = 1
             # Add Encourage MinMax Loss
+            # They are not nessasary to be in the same block
+            close_loss = []
             for min_index, max_index in current_encourage_min_max_pair:
                 loss = loss + torch.abs(one_batch[min_index] - one_batch[max_index])
+            #     close_loss.append(torch.abs(one_batch[min_index] - one_batch[max_index]))
+            # if len(close_loss) > 0:
+            #     loss = loss + torch.mean(torch.stack(close_loss))
+            # if len(close_loss) > 0:
+            #     close_loss = torch.sum(torch.stack(close_loss))
+            # else:
+            #     close_loss = 1
             
+            # Calculate Contrastive Loss
+            # log_prob = -torch.log((1 + away_loss) /(1 + close_loss))
+            # loss += log_prob
+            
+            # Another way to Encourage MinMax Loss [For Non-Scan Loss, just maintain the block]
             # for i in range(len(sorted_indices) - 1):
             #     if (i % self.hparams.train_block_size == (self.hparams.train_block_size - 1)):
             #         continue
@@ -273,7 +295,7 @@ class RankingCostTrainer(pl.LightningModule):
 
             # assert 0       
             # loss = one_batch[sorted_indices[-1]]
-            loss = loss / self.hparams.train_block_size
+            # loss = loss / self.hparams.train_block_size
             if torch.is_tensor(distance):
                 regular_loss = regular_loss / self.hparams.train_block_size
             all_loss = all_loss + loss
@@ -311,12 +333,15 @@ class RankingCostTrainer(pl.LightningModule):
                 # l1_norm = sum(torch.abs(param) for param in self.ranking_model.SparseLayer.parameters())
                 # l1_norm = torch.norm(self.ranking_model.SparseLayer.parameters(), 1)
                 l1_norm = 0
-                for param in self.ranking_model.model.encoder.parameters():
+                # for param in self.ranking_model.model.encoder.parameters():
+                for param in self.ranking_model.SparseLayer.parameters():
                     if param.dim() > 1:
                         l1_norm = l1_norm + param.norm(1)
                 L1_loss = l1_lambda * l1_norm
-                self.log_dict({'L1_loss': L1_loss}, on_step=True, on_epoch=True, prog_bar=True)
-                return all_loss + recont_loss + L1_loss
+                # self.log_dict({'L1_loss': L1_loss}, on_step=True, on_epoch=True, prog_bar=True)
+                # return all_loss + recont_loss + L1_loss
+                # return all_loss + recont_loss
+                return all_loss
             
             return all_loss + recont_loss
             # return all_loss
@@ -509,19 +534,22 @@ class RankingCostTrainer(pl.LightningModule):
         elif dataset == 'dmv-tiny':
             table = datasets.LoadDmv('dmv-tiny.csv')
         elif dataset == 'dmv':
-            table = datasets.LoadDmv('dmv-clean.csv')
+            table = datasets.LoadDmv('dmv-clean.csv', dist=self.hparams.dist)
         elif dataset == 'lineitem':
             table = datasets.LoadLineitem('linitem_1000.csv', cols=['l_orderkey', 'l_partkey'])
         elif dataset == 'randomwalk':
-            # table = datasets.LoadRandomWalk(100, 10000)
+            # table = datasets.LoadRandomWalk(10, 10000, dist=self.hparams.dist)
             table = datasets.LoadRandomWalk(100, int(1e6), dist=self.hparams.dist)
         elif dataset == "randomwalk-bmtree":
             table = datasets.LoadRandomWalkBMTree(100, 10000)
         elif dataset == "GAUData".lower():
-            # table = datasets.LoadGAUDataset(10, int(10000), dist=self.hparams.dist, zvalue=False)
-            table = datasets.LoadGAUDataset(100, int(1e6), dist=self.hparams.dist, zvalue=False)
+            # table = datasets.LoadGAUDataset(100, int(10000), dist=self.hparams.dist, zvalue=False)
+            table = datasets.LoadGAUDataset(3, int(1e6), dist=self.hparams.dist, zvalue=False)
+            # table = datasets.LoadGAUDataset(100, int(1e6), dist=self.hparams.dist, zvalue=False)
         elif dataset == "UniData".lower():
             table = datasets.LoadUniformData('uniform_1000000.json', zvalue=False)
+        elif dataset == "ECG".lower():
+            table = datasets.process_ecg_tiny()
         else:
             raise ValueError(
                 f'Invalid Dataset File Name or Invalid Class Name data.{dataset}')
@@ -622,7 +650,7 @@ class RankingCostTrainer(pl.LightningModule):
             elif self.hparams.lr_scheduler == 'onecycler':
                 scheduler = lrs.OneCycleLR(optimizer, 
                                            max_lr=self.hparams.lr, 
-                                           epochs=self.hparams.max_epochs,
+                                           epochs=50000,
                                            steps_per_epoch=len(self.train_dataloader()))
             else:
                 raise ValueError('Invalid lr_scheduler type!')
