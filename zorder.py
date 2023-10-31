@@ -66,10 +66,14 @@ def Zorder(df, cols, original_df, name):
 
 
 
-def ZorderBlock(df, cols, block_size, dist):
+def ZorderBlock(df, cols, block_size, dist, our=None):
     cols_num = len(cols)
     save_path = f"./datasets/scan_condation_{name}.pkl"
     # save_path = f"./datasets/scan_condation_{cols_num}Cols.pkl"
+    if '-zorder' in name:
+        save_path = f"./datasets/scan_condation_{name.split('-zorder')[0]}.pkl"
+    if "UniData" in name:
+        save_path = f"./datasets/scan_condation_UniData-1000K-2Col_Skew.pkl"
     if not os.path.exists(save_path):
         # assert 0
         print(f'Dont find scan condations {save_path}, generating ...')
@@ -83,6 +87,8 @@ def ZorderBlock(df, cols, block_size, dist):
     else:
         print(f"Load scan condations: {save_path}")
         scan_conds = pickle.load(open(save_path, "rb"))
+    if 'UniData' in name:
+        scan_conds = scan_conds[:100]
     
     get_selectivity(df, scan_conds)
     
@@ -97,6 +103,24 @@ def ZorderBlock(df, cols, block_size, dist):
             cur_scan_conds = scan_conds[j]
             scan += int(Blocks._is_scan(cur_scan_conds[0], cur_scan_conds[1]))
     print("scan", scan)
+    
+    if our:
+        import json
+        our_order = json.loads(open(our).read())
+        scan_number = our_order[0]
+        our_order = our_order[1:]
+        df['our'] = our_order
+        df = df.sort_values(by="our")
+        num_of_blocks = math.ceil(df.shape[0] / block_size)
+        df['block_id'] = [i // block_size for i in range(0, df.shape[0])]
+        Blocks = ALLBlock(df, block_size, cols)
+        scan = 0
+        for i in range(0, num_of_blocks):
+            Blocks.zero_except_id(i)
+            for j in range(0, len(scan_conds)):
+                cur_scan_conds = scan_conds[j]
+                scan += int(Blocks._is_scan(cur_scan_conds[0], cur_scan_conds[1]))
+        print("scan", scan)
 
 
 def LoadDmv(filename='dmv-clean.csv', 
@@ -194,14 +218,20 @@ def process_ecg(input_dir):
             print(data[0].shape)
             # assert 0
 
-def process_ecg_tiny(file_path):
+def process_ecg_tiny(file_path, dist):
     colnames = list(map(str, range(188)))
     data = pd.read_csv(file_path, header=None, names=colnames)
     print(data.shape)
     cols = list(map(str, range(data.shape[1])))
-    return common.CsvTable('ECG', data, cols, sep=',')
+    return common.CsvTable(f'ECG_{dist}', data, cols, sep=',')
 
-
+def LoadUniData(filename, cols=['col_0','col_1'], zvalue=False):
+    csv_file = './datasets/{}'.format(filename)
+    if zvalue:
+        cols.append('zvalue')
+        csv_file = csv_file.split('.csv')[0] + "-zorder.csv"
+    csv_file = pd.read_csv(csv_file, nrows=int(1e6))
+    return common.CsvTable('UniData', csv_file, cols, sep=',')
         
 if __name__ == "__main__":
     # process_ecg_tiny("./datasets/ptbdb_normal.csv")
@@ -218,16 +248,18 @@ if __name__ == "__main__":
     all_cols = ['Record Type','Registration Class','State','County','Body Type','Fuel Type','Reg Valid Date','Color','Scofflaw Indicator','Suspension Indicator','Revocation Indicator']
     # Zorder(df, cols, original_df=original_df)
     
-    block_size = 200
+    block_size = 10000
     # block_size = 200
-    # dist = 'GAU'
-    dist = "UNI"
+    dist = 'GAU'
+    # dist = "UNI"
     
 
     rowNum = int(1e6)
-    colsNum = 188
+    colsNum = 100
     cols = ['0', '1', '2']
+    # cols = ['col_0', 'col_1']
     all_cols = list(map(str, range(colsNum)))
+    # all_cols = ['col_0', 'col_1']
     # name = f'RandomWalk-{int(rowNum/1000)}K-{colsNum}Col.csv'.split(".")[0]
     # name = f'GAUData-{int(rowNum/1000)}K-{colsNum}Col_{dist}'
     # name = 'dmv-tiny'
@@ -235,16 +267,19 @@ if __name__ == "__main__":
     # name  = 'linitem_1000'
     # table = LoadLineitem(f"{name}.csv", cols=cols)
     # table = LoadDmv("dmv-clean.csv", cols=all_cols, dist=dist)
-    # table = datasets.LoadRandomWalk(colsNum, rowNum, dist=dist, zvalue=False)
+    table = datasets.LoadRandomWalk(colsNum, rowNum, dist=dist, zvalue=True)
     # table = datasets.LoadGAUDataset(colsNum, rowNum, dist, zvalue=False)
-    table = process_ecg_tiny("./datasets/ptbdb_normal.csv")
+    # table = process_ecg_tiny("./datasets/ptbdb_normal.csv", dist=dist)
+    # table = LoadUniData('UniData-1000K-2Col_Skew.csv', cols=cols, zvalue=True)
     # table = datasets.LoadRandomWalk(100, int(1e6))
     df = common.TableDataset(table).tuples_df
     Zorder(df, cols, original_df=table.data, name=table.name)
     # print(table.data)
     name = table.name
     # all_cols = cols
-    ZorderBlock(table.data, all_cols, block_size, dist=dist)
+    # our = 'lightning_logs/wandb/run-20231025_191701-f65s37nt/files/best_score.json'
+    our = None
+    ZorderBlock(table.data, all_cols, block_size, dist=dist, our=our)
 
 
     

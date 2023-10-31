@@ -238,9 +238,17 @@ class RankingCostTrainer(pl.LightningModule):
                 cur_dis = distance[cur_batch]
             loss = 0
             regular_loss = 0
-            one_batch = one_batch.view(-1)
-            indices = one_batch.nonzero().reshape(-1)
-            sorted_indices = indices[torch.argsort(one_batch[indices], descending=True)]
+            # Depreprerated
+            # one_batch = one_batch.view(-1)
+            # indices = one_batch.nonzero().reshape(-1)
+            # sorted_indices = indices[torch.argsort(one_batch[indices], descending=True)]
+            
+            # Measure ranking directly
+            # one_batch = distance[cur_batch].view(-1)
+            # min_val = torch.min(one_batch)
+            # max_val = torch.max(one_batch)
+            # one_batch = (one_batch - min_val) / (max_val - min_val)
+            
             current_min_max_pair = min_max_pair[cur_batch]
             current_encourage_min_max_pair = encourage_min_max_pair[cur_batch]
             # cur_bitmap = scan_bitmap[cur_batch]
@@ -256,22 +264,26 @@ class RankingCostTrainer(pl.LightningModule):
                 # loss = loss - torch.mean(torch.stack(away_loss))
             # if len(away_loss) > 0:
             #     away_loss = torch.sum(torch.stack(away_loss))
+            #     # away_loss = torch.mean(torch.stack(away_loss))
             # else:
             #     away_loss = 1
+            
             # Add Encourage MinMax Loss
             # They are not nessasary to be in the same block
             close_loss = []
             for min_index, max_index in current_encourage_min_max_pair:
                 loss = loss + torch.abs(one_batch[min_index] - one_batch[max_index])
-            #     close_loss.append(torch.abs(one_batch[min_index] - one_batch[max_index]))
+                # close_loss.append(torch.abs(one_batch[min_index] - one_batch[max_index]))
             # if len(close_loss) > 0:
             #     loss = loss + torch.mean(torch.stack(close_loss))
             # if len(close_loss) > 0:
             #     close_loss = torch.sum(torch.stack(close_loss))
+            #     # close_loss = torch.mean(torch.stack(close_loss))
             # else:
             #     close_loss = 1
             
             # Calculate Contrastive Loss
+            # self.log_dict({'contrast/away_loss': away_loss, 'contrast/close_loss': close_loss}, on_step=True, on_epoch=True, prog_bar=True)
             # log_prob = -torch.log((1 + away_loss) /(1 + close_loss))
             # loss += log_prob
             
@@ -300,7 +312,7 @@ class RankingCostTrainer(pl.LightningModule):
                 regular_loss = regular_loss / self.hparams.train_block_size
             all_loss = all_loss + loss
             all_regular_loss = all_regular_loss + regular_loss
-            assert len(sorted_indices) % self.hparams.train_block_size == 0
+            # assert len(sorted_indices) % self.hparams.train_block_size == 0
 
         # Add Flip the total_cost
         # flipped = torch.ones_like(total_cost) - total_cost
@@ -322,7 +334,7 @@ class RankingCostTrainer(pl.LightningModule):
         # assert 0
         # return all_loss
         if isinstance(self.ranking_model, RankingModel_v4) or isinstance(self.ranking_model, RankingModel_v2):
-            recont_loss = recont_loss / 100
+            # recont_loss = recont_loss / 100
             # recont_loss = recont_loss
             self.log_dict({'cluster_loss': all_loss, 'recont_loss': recont_loss}, on_step=True, on_epoch=True, prog_bar=True)
             # return all_loss + recont_loss
@@ -547,9 +559,11 @@ class RankingCostTrainer(pl.LightningModule):
             table = datasets.LoadGAUDataset(3, int(1e6), dist=self.hparams.dist, zvalue=False)
             # table = datasets.LoadGAUDataset(100, int(1e6), dist=self.hparams.dist, zvalue=False)
         elif dataset == "UniData".lower():
-            table = datasets.LoadUniformData('uniform_1000000.json', zvalue=False)
+            # table = datasets.LoadUniformData('uniform_1000000.json', zvalue=False)
+            cols = ['col_0', 'col_1']
+            table = datasets.LoadUniData('UniData-1000K-2Col_Skew-zorder.csv', cols=cols, zvalue=False)
         elif dataset == "ECG".lower():
-            table = datasets.process_ecg_tiny()
+            table = datasets.process_ecg_tiny(dist=self.hparams.dist)
         else:
             raise ValueError(
                 f'Invalid Dataset File Name or Invalid Class Name data.{dataset}')

@@ -9,7 +9,7 @@ import common
 
 # 读取自己的数据集
 def LoadDmv(filename='dmv-clean.csv', 
-            cols=['VIN','City','Zip','County','Reg Valid Date','Reg Expiration Date', 'zvalue'], zvalue=True, dist=None):
+            cols=['VIN','City','Zip','County','Reg Valid Date','Reg Expiration Date', 'zvalue'], zvalue=False, dist=None):
     csv_file = './datasets/{}'.format(filename)
     cols = ['Record Type', 'VIN', 'Registration Class', 'City', 'State', 'Zip', 'County', 
             'Body Type', 'Fuel Type', 'Reg Valid Date', 'Reg Expiration Date', 'Color',
@@ -153,13 +153,21 @@ def LoadGAUDataset(colsNum, rowNum, dist="UNI", zvalue=False):
         return common.CsvTable(tablename, df, cols, sep=',')
 
 
-def process_ecg_tiny(file_path='ptbdb_normal.csv'):
+def process_ecg_tiny(dist, file_path='ptbdb_normal.csv'):
     file_path = './datasets/{}'.format(file_path)
     colnames = list(map(str, range(188)))
     data = pd.read_csv(file_path, header=None, names=colnames)
     print(data.shape)
     cols = list(map(str, range(data.shape[1])))
-    return common.CsvTable('ECG', data, cols, sep=',')
+    return common.CsvTable(f'ECG_{dist}', data, cols, sep=',')
+
+def LoadUniData(filename, cols=['col_0','col_1'], zvalue=False):
+    csv_file = './datasets/{}'.format(filename)
+    if zvalue:
+        cols.append('zvalue')
+        # csv_file = csv_file.split('.csv')[0] + "-zorder.csv"
+    csv_file = pd.read_csv(csv_file, nrows=int(1e6))
+    return common.CsvTable('UniData', csv_file, cols, sep=',')
 
 if __name__ == '__main__':
    # table = LoadDmv('dmv-clean.csv')

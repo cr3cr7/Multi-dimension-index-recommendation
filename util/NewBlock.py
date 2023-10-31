@@ -371,6 +371,8 @@ class BlockDataset_V2(data.Dataset):
             save_path = f"./datasets/scan_condation_{cols_num}Cols.pkl"
             if 'dmv-clean' in table.name:
                 save_path = f'./datasets/scan_condation_{table.name}.pkl'
+        elif 'UniData' in table.name:
+            save_path = f"./datasets/scan_condation_UniData-1000K-2Col_Skew.pkl"
         else:
             save_path = f'./datasets/scan_condation_{table.name}.pkl'
         if not os.path.exists(save_path):
@@ -410,6 +412,8 @@ class BlockDataset_V2(data.Dataset):
         self.SampledData = []
         self.SampledIdx = []
         self.Selectivity = []
+        if 'UniData' in table.name:
+            self.testScanConds = self.testScanConds[:100]
         for one_batch_index in range(len(self.testScanConds)):
             one_batch_query_cols, one_batch_val_ranges = self.testScanConds[one_batch_index]
             preds = []
@@ -493,7 +497,7 @@ class BlockDataset_V2(data.Dataset):
         #     self.train_tuples = self.orig_tuples
          
         # Sample data that satisfy the query
-        sample_size = int(self.pad_size / 2) if int(self.pad_size / 2) < len(self.SampledIdx) else len(self.SampledIdx)
+        sample_size = int(self.pad_size / 3) if int(self.pad_size / 3) < len(self.SampledIdx) else len(self.SampledIdx)
         ix_1 = torch.Tensor(random.sample(self.SampledIdx, sample_size)).long()
         
         # No Sample

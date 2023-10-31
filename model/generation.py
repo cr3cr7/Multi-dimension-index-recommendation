@@ -20,10 +20,31 @@ class InputDimAttention(nn.Module):
     def __init__(self, input_dim):
         super(InputDimAttention, self).__init__()
         # Define a small feed-forward network to compute attention weights
+        # self.attention_network = nn.Sequential(
+        #     nn.Linear(input_dim, input_dim // 2),
+        #     nn.ReLU(),
+        #     nn.Linear(input_dim // 2, input_dim),
+        # )
+        
+        # self.attention_network = Attention
+        
+        # TODO: Visualize attention weights
+        hidden_size = 32
+        # dropout_rate = 0.1
         self.attention_network = nn.Sequential(
-            nn.Linear(input_dim, input_dim // 2),
+            nn.Linear(input_dim, hidden_size),
+            # nn.LeakyReLU(),
             nn.ReLU(),
-            nn.Linear(input_dim // 2, input_dim),
+            # nn.Dropout(dropout_rate),
+            nn.Linear(hidden_size, hidden_size * 2),
+            # nn.LeakyReLU(),
+            nn.ReLU(),
+            # nn.Dropout(dropout_rate),
+            nn.Linear(hidden_size * 2, hidden_size),
+            # nn.LeakyReLU(),
+            nn.ReLU(),
+            # nn.Dropout(dropout_rate),
+            nn.Linear(hidden_size, input_dim)
         )
         
     def forward(self, x):
@@ -39,6 +60,24 @@ class InputDimAttention(nn.Module):
         out = x * attention_weights
         
         return out
+
+
+class ResidualBlock(nn.Module):
+    def __init__(self, in_features, out_features, activation):
+        assert in_features == out_features, [in_features, out_features]
+        super().__init__()
+        self.layers = nn.ModuleList()
+        self.layers.append(nn.Linear(in_features, out_features, bias=True))
+        self.layers.append(nn.Linear(in_features, out_features, bias=True))
+        self.activation = activation
+
+    def forward(self, input):
+        out = input
+        out = self.activation(out)
+        out = self.layers[0](out)
+        out = self.activation(out)
+        out = self.layers[1](out)
+        return input + out
 
 
 class RankingModel(nn.Module):
@@ -128,12 +167,51 @@ class Lambda(nn.Module):
         else:
             return self.latent_mean
 
+class AutoEncoder(nn.Module):
+    def __init__(self, col_num, dmodel):
+        super(AutoEncoder, self).__init__()
+        self.col_num = col_num
+        self.dmodel = dmodel
+    
+        
+        hs = [256, 128, col_num]
+        self.net = []
+        activation=nn.ReLU
+        residual_connections = True
+        for h0, h1 in zip(hs, hs[1:]):
+            if residual_connections:
+                if h0 == h1:
+                    self.net.extend([
+                        ResidualBlock(
+                            h0, h1, activation=activation(inplace=False))
+                    ])
+                else:
+                    self.net.extend([
+                        nn.Linear(h0, h1),
+                    ])
+            else:
+                self.net.extend([
+                    nn.Linear(h0, h1),
+                    activation(inplace=True),
+                ])
+        self.decoder = nn.Sequential(*self.net)
+        
+    def forward(self, embedding, table):
+        recon_table = self.decoder(embedding)
+        loss = self.loss_function_AE(recon_table, table)
+        return loss, embedding
+
+    def loss_function_AE(self, recon_x, x):
+        """For autoencoder"""
+        return F.mse_loss(recon_x, x)
+
 class VAE(nn.Module):
     def __init__(self, col_num, dmodel):
         super(VAE, self).__init__()
         self.col_num = col_num
         self.dmodel = dmodel
         
+        # TODO: Embedding
         dmodel = 64
         self.encoder = nn.Sequential(
             nn.Linear(col_num , 32),
@@ -144,9 +222,12 @@ class VAE(nn.Module):
             # nn.Dropout(0.1)
         )
         
-        d_ff = 32
-        num_heads = 8
-        num_blocks = 4
+        # d_ff = 32
+        # num_heads = 8
+        # num_blocks = 4
+        d_ff = 128
+        num_heads = 16
+        num_blocks = 6
         activation = "gelu"
         self.encoder_block = nn.Sequential(*[
             Block(dmodel,
@@ -180,8 +261,8 @@ class VAE(nn.Module):
         encode_table = self.encoder(table)
         encode_table = self.encoder_block(encode_table)
         z = self.reparameterize(encode_table)
-        z = self.decoder_block(z)
-        recon_table = self.decoder(z)
+        deocde_table = self.decoder_block(z)
+        recon_table = self.decoder(deocde_table)
         
         
         mu = self.reparameterize.latent_mean
@@ -386,11 +467,112 @@ class RankingModel_v3(nn.Module):
         scores = distances + torch.from_numpy(labels).reshape(1, -1)
         return scores
         
-        
-        
+
 class RankingModel_v2(nn.Module):
+    
     def __init__(self, BlockSize, BlockNum, col_num, dmodel, input_bins, sparse, if_pretraining):
         super(RankingModel_v2, self).__init__()
+        self.capacity = BlockSize
+        self.BlockNum = BlockNum
+        self.col_num = col_num
+        self.dmodel = dmodel
+        self.input_bins = input_bins
+        self.sparse = sparse
+        self.if_pretraining = if_pretraining
+        
+        if self.sparse:
+            self.SparseLayer = InputDimAttention(input_dim=col_num)
+        
+        activation=nn.ReLU
+        residual_connections = True
+        
+        self.net1 = self.build_net([self.col_num] + [128, 256, 256], residual_connections, activation)
+        self.net2 = self.build_net([256, 128, 32, 1], residual_connections, activation)
+     
+        
+        self.AE = AutoEncoder(col_num, dmodel)
+
+    def forward(self, table, BlockSize, current_epoch, baseline):
+        rows = table.shape[1]
+        # table = table.reshape(-1, rows, self.col_num * self.dmodel)
+        table = table.reshape(-1, rows, self.col_num)
+        
+        if max(self.input_bins) > 1200:
+            table = torch.log(table + 1)
+        
+        if self.sparse:
+            table = self.SparseLayer(table)
+        
+        z = self.net1(table)
+        scores = self.net2(z).reshape(-1, rows)
+        
+        # loss, _ = self.AE(z, table)
+        loss = 0.0
+        
+        # scores = self.net(table).reshape(-1, rows)
+        if self.if_pretraining:
+            baseline = torch.log(baseline + 1)
+            scores = scores * baseline
+        # scores = nn.functional.softmax(scores, dim=1)
+        
+        # For Fast Inference
+        if not self.training:
+            return scores.reshape(-1)
+            
+        min_vals = torch.min(scores, dim=1, keepdim=True)[0]
+        max_vals = torch.max(scores, dim=1, keepdim=True)[0]
+        scaled_scores = ((scores - min_vals) / (max_vals - min_vals)) * len(table)
+        # scaled_scores = scores
+        
+        # regularization_strength = (0.995)**current_epoch
+        # regularization_strength = 0.5 * (0.995)**current_epoch
+        # if regularization_strength < 0.01:
+        #     regularization_strength = 0.01
+        regularization_strength = 0.01
+        original_ranks = torchsort.soft_rank(scaled_scores, regularization="l2", regularization_strength=regularization_strength)
+        # original_ranks = torchsort.soft_rank(scaled_scores, regularization="l2", regularization_strength=0.01)
+
+        # Generate Block ID
+        # other = original_ranks.detach() % self.capacity
+        # rank_indices = (original_ranks - other) / self.capacity
+        
+        # Get Rank Index of scaled_scores
+        sorted_indices = torch.argsort(scores, dim=1)
+        rank_indices = torch.zeros_like(sorted_indices, device=scores.device)
+        for batch in range(sorted_indices.shape[0]):
+            rank_indices[batch, sorted_indices[batch]] = torch.arange(sorted_indices.shape[1], device=scores.device)
+        # rank_indices[:, sorted_indices] = torch.arange(sorted_indices.shape[1])
+        # rank_indices = rank_indices // BlockSize
+        rank_indices = torch.div(rank_indices, BlockSize, rounding_mode='floor')
+      
+        # Block 0 for padding
+        rank_indices = rank_indices + 1
+        # print(rank_indices[0].reshape(-1))
+        return original_ranks.reshape(-1, rows, 1), rank_indices.reshape(-1, rows, 1), scores.reshape(-1, rows, 1), loss
+        
+    def build_net(self, hs, residual_connections=True, activation=nn.ReLU):
+        net = []
+        for h0, h1 in zip(hs, hs[1:]):
+            if residual_connections:
+                if h0 == h1:
+                    net.extend([
+                        ResidualBlock(
+                            h0, h1, activation=activation(inplace=False))
+                    ])
+                else:
+                    net.extend([
+                        nn.Linear(h0, h1),
+                    ])
+            else:
+                net.extend([
+                    nn.Linear(h0, h1),
+                    activation(inplace=True),
+                ])
+        return nn.Sequential(*net)
+        
+class RankingModel_v2_(nn.Module):
+    def __init__(self, BlockSize, BlockNum, col_num, dmodel, input_bins, sparse, if_pretraining):
+        super(RankingModel_v2_, self).__init__()
         self.capacity = BlockSize
         self.BlockNum = BlockNum
         self.col_num = col_num
@@ -418,9 +600,15 @@ class RankingModel_v2(nn.Module):
         )
         
         d_model = self.latent_size
-        d_ff = 256
+        # d_ff = 256
+        # num_heads = 8
+        # num_blocks = 4
+        d_ff = 128
         num_heads = 8
         num_blocks = 4
+        # d_ff = 256
+        # num_heads = 16
+        # num_blocks = 6
         # d_ff = 128
         # num_heads = 2
         # num_blocks = 2
