@@ -12,9 +12,103 @@ import torch.nn.functional as F
 from sklearn.metrics import f1_score, accuracy_score
 import math
 import torchsort
-from model.transformer import Block
+from model.transformer import Block, LayerNorm
 
 from sklearn.cluster import estimate_bandwidth, AgglomerativeClustering, KMeans
+
+
+class AddBlock(nn.Module):
+    """A Add ATT block.
+
+    Args:
+      d_model: last dim of input and output of this module.
+      d_ff: the hidden dim inside the FF net.
+      num_heads: number of parallel heads.
+    """
+
+    def __init__(self,
+                 d_model,
+                 d_ff,
+                 num_heads,
+                 activation='relu',
+                 do_residual=False):
+        super(Block, self).__init__()
+
+        self.mlp = nn.Sequential(
+            Conv1d(d_model, d_ff),
+            nn.ReLU() if activation == 'relu' else GeLU(),
+            Conv1d(d_ff, d_model),
+        )
+        self.norm1 = LayerNorm(features=d_model)
+        self.norm2 = LayerNorm(features=d_model)
+        self.attn = InputDimAttention(input_dim=d_model)
+        self.do_residual = do_residual
+
+    def set_attn_mask(self, mask):
+        self.attn.attn_mask = mask
+
+    def forward(self, x):
+        residual = x
+        x = self.norm1(x)
+        x = self.attn(x)
+        if self.do_residual:
+            x += residual
+
+        residual = x
+        x = self.norm2(x)
+        x = self.mlp(x)
+        if self.do_residual:
+            x += residual
+
+        return x
+
+class FeedFoward(nn.Module):
+    """ a simple linear layer followed by a non-linearity """
+
+    def __init__(self, n_embd):
+        super().__init__()
+        dropout = 0.2
+        self.net = nn.Sequential(
+            nn.Linear(n_embd, 32 * n_embd),
+            nn.ReLU(),
+            nn.Linear(32 * n_embd, n_embd),
+            # nn.Dropout(dropout),
+        )
+
+    def forward(self, x):
+        return self.net(x)
+
+class AdaCurveBlock(nn.Module):
+    """Transformer like block with adaptive curve attention."""
+    def __init__(self, 
+                 input_dim, 
+                 output_dim, 
+                 activation='relu', 
+                 do_residual=True):
+        super(AdaCurveBlock, self).__init__()
+
+        self.mlp = FeedFoward(input_dim)
+        self.norm1 = LayerNorm(features=input_dim)
+        self.norm2 = LayerNorm(features=input_dim)
+        self.attn = InputDimAttention(input_dim=input_dim)
+        self.do_residual = do_residual
+    
+    def forward(self, x):
+        residual = x
+        x = self.norm1(x)
+        x, _ = self.attn(x)
+        if self.do_residual:
+            x += residual
+
+        residual = x
+        x = self.norm2(x)
+        x = self.mlp(x)
+        if self.do_residual:
+            x += residual
+
+        return x
+    
+
 
 class InputDimAttention(nn.Module):
     def __init__(self, input_dim):
@@ -59,7 +153,7 @@ class InputDimAttention(nn.Module):
         # Apply attention weights
         out = x * attention_weights
         
-        return out
+        return out, attention_weights
 
 
 class ResidualBlock(nn.Module):
@@ -225,28 +319,28 @@ class VAE(nn.Module):
         # d_ff = 32
         # num_heads = 8
         # num_blocks = 4
-        d_ff = 128
-        num_heads = 16
-        num_blocks = 6
-        activation = "gelu"
-        self.encoder_block = nn.Sequential(*[
-            Block(dmodel,
-                  d_ff,
-                  num_heads,
-                  activation,
-                  do_residual=True)
-            for i in range(num_blocks)
-        ])
+        # d_ff = 128
+        # num_heads = 16
+        # num_blocks = 6
+        # activation = "gelu"
+        # self.encoder_block = nn.Sequential(*[
+        #     Block(dmodel,
+        #           d_ff,
+        #           num_heads,
+        #           activation,
+        #           do_residual=True)
+        #     for i in range(num_blocks)
+        # ])
          # self.latent_dim = int((dmodel * col_num) / 4) 
         self.latent_dim = 16
-        self.decoder_block = nn.Sequential(*[
-            Block(self.latent_dim,
-                  d_ff,
-                  num_heads,
-                  activation,
-                  do_residual=True)
-            for i in range(num_blocks)
-        ])
+        # self.decoder_block = nn.Sequential(*[
+        #     Block(self.latent_dim,
+        #           d_ff,
+        #           num_heads,
+        #           activation,
+        #           do_residual=True)
+        #     for i in range(num_blocks)
+        # ])
 
         self.reparameterize = Lambda(dmodel, self.latent_dim)
         
@@ -259,10 +353,10 @@ class VAE(nn.Module):
     
     def forward(self, table):
         encode_table = self.encoder(table)
-        encode_table = self.encoder_block(encode_table)
+        # encode_table = self.encoder_block(encode_table)
         z = self.reparameterize(encode_table)
-        deocde_table = self.decoder_block(z)
-        recon_table = self.decoder(deocde_table)
+        # deocde_table = self.decoder_block(z)
+        recon_table = self.decoder(z)
         
         
         mu = self.reparameterize.latent_mean
@@ -297,26 +391,30 @@ class RankingModel_v4(nn.Module):
         self.input_bins = input_bins
         
         self.apply(self._init_weights)
-        
-    def forward(self, table, BlockSize, current_epoch):
+    def forward(self, table, BlockSize, current_epoch, baseline):
+        if len(table.shape) == 2:
+            table = table.unsqueeze(0)
         rows = table.shape[1]
         # table = table.reshape(-1, rows, self.col_num * self.dmodel)
         table = table.reshape(-1, rows, self.col_num)
         
-        table = table / torch.tensor(self.input_bins)
+        # table = table / torch.tensor(self.input_bins)
         loss, z = self.model(table)
         # print(loss)
         # print(z.shape)
     
         scores = self.clustering(z)
-    
+        # For Fast Inference
+        if not self.training:
+            return scores.reshape(-1)
+        
         min_vals = torch.min(scores, dim=1, keepdim=True)[0]
         max_vals = torch.max(scores, dim=1, keepdim=True)[0]
         scaled_scores = ((scores - min_vals) / (max_vals - min_vals)) * len(table)
 
         # original_ranks = torchsort.soft_rank(scaled_scores, regularization="l2", regularization_strength=0.01)
-        regularization_strength = (0.995)**current_epoch
-        # regularization_strength = 1
+        # regularization_strength = (0.995)**current_epoch
+        regularization_strength = 0.01
         original_ranks = torchsort.soft_rank(scaled_scores, regularization="l2", regularization_strength=regularization_strength)
         # original_ranks = torchsort.soft_rank(scores, regularization="l2", regularization_strength=0.01)
         # print(original_ranks[0].reshape(-1))
@@ -330,7 +428,7 @@ class RankingModel_v4(nn.Module):
         # Block 0 for padding
         rank_indices = rank_indices + 1
         # print(rank_indices[0].reshape(-1))
-        return original_ranks.reshape(-1, rows, 1), rank_indices.reshape(-1, rows, 1), scores.reshape(-1, rows, 1), loss
+        return original_ranks.reshape(-1, rows, 1), rank_indices.reshape(-1, rows, 1), scores.reshape(-1, rows, 1), loss, 0
     
     def clustering(self, table):
         # FIXME: Hack for train and validation
@@ -351,7 +449,7 @@ class RankingModel_v4(nn.Module):
                 scores = distances + torch.from_numpy(labels)
                 all_scores.append(scores)
             return torch.stack(all_scores, dim=0)
-        array = table[0].detach().numpy()
+        array = table[0].detach().cpu().numpy()
         # print(array)
         bandwidth = estimate_bandwidth(array, quantile=1)
         clusters = AgglomerativeClustering(n_clusters=None, distance_threshold=bandwidth).fit(array)
@@ -486,26 +584,103 @@ class RankingModel_v2(nn.Module):
         activation=nn.ReLU
         residual_connections = True
         
-        self.net1 = self.build_net([self.col_num] + [128, 256, 256], residual_connections, activation)
-        self.net2 = self.build_net([256, 128, 32, 1], residual_connections, activation)
-     
+        # self.net1 = self.build_net([self.col_num] + [128, 256, 256], residual_connections, activation)
+        # self.net2 = self.build_net([256, 128, 32, 1], residual_connections, activation)
+        self.d_model = 4
+        # self.net1 = self.build_net([self.col_num] + [128, 256, 256, 256, 256], residual_connections, activation)
+        self.net2 = self.build_net([256, 128, 128, 32, 1], residual_connections, activation)
+        # self.net2 = self.build_net([col_num, 32, 128, 32, 1], residual_connections, activation)
+        # self.net_k =self.build_net([1, self.d_model, self.d_model], residual_connections, activation)
         
-        self.AE = AutoEncoder(col_num, dmodel)
+        
+        # self.MLP_1 = nn.Linear(1, d_model)
+        # d_ff = 256
+        # num_heads = 8
+        # num_blocks = 4
+        # d_ff = 64
+        # num_heads = 2
+        # num_blocks = 2
+        # d_ff = 256
+        # num_heads = 16
+        # num_blocks = 6
+        # d_ff = 128
+        # num_heads = 2
+        # num_blocks = 2
+        # activation = "gelu"
+        # self.blocks = nn.Sequential(*[
+        #     Block(self.d_model,
+        #           d_ff,
+        #           num_heads,
+        #           activation,
+        #           do_residual=True)
+        #     for i in range(num_blocks)
+        # ])
+        
+        # Sparse Layers Block
+        layer_1 = 32
+        self.SparseLayer_1 = InputDimAttention(input_dim=col_num)
+        self.MLP_v1 = self.build_net([self.col_num, 16, layer_1], residual_connections, activation)
+        
+        layer_2 = 256
+        # layer_2 = 128
+        self.SparseLayer_2 = InputDimAttention(input_dim=layer_1)
+        self.MLP_v2 = self.build_net([layer_1, 128, layer_2], residual_connections, activation)
+    
+        self.SparseLayer_3 = InputDimAttention(input_dim=layer_2)
+        self.MLP_v3 = self.build_net([layer_2, 256, 128, 256], residual_connections, activation)
+        # self.MLP_v3 = self.build_net([layer_2, 128, 256], residual_connections, activation)
+        
+        # self.SparseLayer_4 = InputDimAttention(input_dim=256)
+        # self.MLP_v4 = self.build_net([layer_2, 256, 128], residual_connections, activation)
+        
+        # self.blocks = nn.Sequential(*[
+        #     AdaCurveBlock(col_num, col_num, activation, do_residual=True)
+        #     for i in range(6)
+        # ])
+        
+        # self.AE = AutoEncoder(col_num, dmodel)
+        # from diffsort import DiffSortNet
+        # self.sorter = DiffSortNet('odd_even', size=100)
+        
+        self.apply(self._init_weights)
 
     def forward(self, table, BlockSize, current_epoch, baseline):
+        if len(table.shape) == 2:
+            table = table.unsqueeze(0)
         rows = table.shape[1]
         # table = table.reshape(-1, rows, self.col_num * self.dmodel)
-        table = table.reshape(-1, rows, self.col_num)
+        # table = table.reshape(-1, rows, self.col_num)
         
-        if max(self.input_bins) > 1200:
-            table = torch.log(table + 1)
+        # if max(self.input_bins) > 1200:
+        #     table = torch.log(table + 1)
+       
+        # if self.sparse:
+        #     table = self.SparseLayer(table)
         
-        if self.sparse:
-            table = self.SparseLayer(table)
+        # table = self.net1(table)
+        # scores = self.net2(z).reshape(-1, rows)
+    
+        # For transformer
+        # table = table.reshape(-1, rows, 1)
+        # table = self.net_k(table)
+        # z = self.blocks(table).reshape(-1, rows, self.col_num * self.d_model)
         
-        z = self.net1(table)
+        z, att_1 = self.SparseLayer_1(table)
+        z = self.MLP_v1(z)
+        z, att_2 = self.SparseLayer_2(z)
+        z = self.MLP_v2(z)
+        z, att_3 = self.SparseLayer_3(z)
+        z = self.MLP_v3(z)
+        # z, att_4 = self.SparseLayer_4(z)
+        # z = self.MLP_v4(z)
+        
+        # z = self.blocks(table)
+        # att_1 = 0
+        
+        # scores = self.MLP_2(z).reshape(-1, rows)
         scores = self.net2(z).reshape(-1, rows)
         
+        # scores = nn.Tanh()(scores)
         # loss, _ = self.AE(z, table)
         loss = 0.0
         
@@ -530,8 +705,10 @@ class RankingModel_v2(nn.Module):
         #     regularization_strength = 0.01
         regularization_strength = 0.01
         original_ranks = torchsort.soft_rank(scaled_scores, regularization="l2", regularization_strength=regularization_strength)
-        # original_ranks = torchsort.soft_rank(scaled_scores, regularization="l2", regularization_strength=0.01)
-
+       
+        # original_ranks, _ = self.sorter(scaled_scores)
+        # print(original_ranks[0].reshape(-1))
+        
         # Generate Block ID
         # other = original_ranks.detach() % self.capacity
         # rank_indices = (original_ranks - other) / self.capacity
@@ -548,7 +725,7 @@ class RankingModel_v2(nn.Module):
         # Block 0 for padding
         rank_indices = rank_indices + 1
         # print(rank_indices[0].reshape(-1))
-        return original_ranks.reshape(-1, rows, 1), rank_indices.reshape(-1, rows, 1), scores.reshape(-1, rows, 1), loss
+        return original_ranks.reshape(-1, rows, 1), rank_indices.reshape(-1, rows, 1), scores.reshape(-1, rows, 1), loss, att_1
         
     def build_net(self, hs, residual_connections=True, activation=nn.ReLU):
         net = []
@@ -566,9 +743,24 @@ class RankingModel_v2(nn.Module):
             else:
                 net.extend([
                     nn.Linear(h0, h1),
-                    activation(inplace=True),
+                    nn.BatchNorm1d(h1),
+                    activation(inplace=True)
                 ])
         return nn.Sequential(*net)
+
+    def _init_weights(self, module):
+        if isinstance(module, nn.Linear):
+            torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
+            # nn.init.kaiming_uniform_(module.weight, mode='fan_in', nonlinearity='relu')
+            # nn.init.xavier_uniform_(module.weight)
+            if module.bias is not None:
+                torch.nn.init.zeros_(module.bias)
+                # nn.init.xavier_uniform_(module.bias)
+                # nn.init.kaiming_uniform_(module.bias, mode='fan_in', nonlinearity='relu')
+        elif isinstance(module, nn.Embedding):
+            torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
+            # nn.init.kaiming_uniform_(module.weight, mode='fan_in', nonlinearity='relu')
+            # nn.init.xavier_uniform_(module.weight)
         
 class RankingModel_v2_(nn.Module):
     def __init__(self, BlockSize, BlockNum, col_num, dmodel, input_bins, sparse, if_pretraining):
