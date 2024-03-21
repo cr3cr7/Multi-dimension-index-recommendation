@@ -35,7 +35,7 @@ class ALLBlock:
     def _is_scan(self, qcols, qranges):
         for idx, i in enumerate(qcols):
             if self.cols_min.get(i, False):
-                if i == 'Reg Valid Date' or i == 'Reg Expiration Date':
+                if 'date' in i.lower():
                     qranges[idx][0] = pd.to_datetime(qranges[idx][0])
                     qranges[idx][1] = pd.to_datetime(qranges[idx][1])
                     # self.cols_min[i] = pd.to_datetime(self.cols_min[i])
@@ -68,7 +68,6 @@ def Zorder(df, cols, original_df, name):
 
 def LoadScanCondation(cols, name):
     cols_num = len(cols)
-    name = "GAUData-20K-3Col_UNI"
     save_path = f"./datasets/scan_condation_{name}.pkl"
     # save_path = f"./datasets/scan_condation_{cols_num}Cols.pkl"
     if '-zorder' in name:
@@ -92,8 +91,6 @@ def LoadScanCondation(cols, name):
     else:
         print(f"Load scan condations: {save_path}")
         scan_conds = pickle.load(open(save_path, "rb"))
-    if 'UniData' in name:
-        scan_conds = scan_conds[:100]
     print("Workload Len: ", len(scan_conds))
     return scan_conds
 
@@ -286,9 +283,10 @@ def testRangePartition(df, name, block_size, dist, ftype):
     else:
         raise NotImplementedError
     print("Sort by ", sortcol)
-    assert sortcol in df.columns, sortcol
+    if ftype != 'random':
+        assert sortcol in df.columns, sortcol
+        df = df.sort_values(by=sortcol)
     cols = df.columns.tolist()
-    df = df.sort_values(by=sortcol)
     num_of_blocks = math.ceil(df.shape[0] / block_size)
     df['block_id'] = [i // block_size for i in range(0, df.shape[0])]
     Blocks = ALLBlock(df, block_size, cols)
@@ -312,7 +310,30 @@ def find_most_cols(scan_cond):
         cols.extend(colname)
     return Counter(cols).most_common(1)[0][0]
 
+def MakeZorder(df: common.CsvTable, name, cols):
+    original_df = df.data
+    tuple_np = common.TableDataset(df).tuples_df
+    Zorder(
+        tuple_np,
+        cols,
+        original_df,
+        name
+    )
+    return tuple_np, original_df
+
+def cast_type(df, type_casts):
+    table = df
+    for col, cast in type_casts.items():
+        if col not in table.columns:
+            continue
+        if cast != np.datetime64:
+            table[col] = table[col].astype(cast, copy=False)
+        else:
+            table[col] = pd.to_datetime(table[col], 
+                                        infer_datetime_format=True, 
+                                        cache=True)
     
+
 if __name__ == "__main__":
     # process_ecg_tiny("./datasets/ptbdb_normal.csv")
     # process_ecg("./datasets/physionet.org/files/ptbdb/1.0.0/")
@@ -329,21 +350,21 @@ if __name__ == "__main__":
     # all_cols = ['Record Type','Registration Class','State','County','Body Type','Fuel Type','Reg Valid Date','Color','Scofflaw Indicator','Suspension Indicator','Revocation Indicator']
     # Zorder(df, cols, original_df=original_df)
     
-    block_size = 50
+    # block_size = 50
     # block_size = 200
-    dist = 'GAU'
+    # dist = 'GAU'
     # dist = "UNI"
     # 
 
     # rowNum = int(1e6)
-    rowNum = 2 * int(10000)
-    colsNum = 3
+    # rowNum = 2 * int(10000)
+    # colsNum = 3
     # cols = ['0', '1', '2']
     # cols = ['col_0', 'col_1']
-    all_cols = list(map(str, range(colsNum)))
+    # all_cols = list(map(str, range(colsNum)))
     # all_cols = ['col_0', 'col_1']
     # name = f'RandomWalk-{int(rowNum/1000)}K-{colsNum}Col_{dist}.csv'.split(".")[0]
-    name = f'GAUData-{int(rowNum/1000)}K-{colsNum}Col_{dist}'
+    # name = f'GAUData-{int(rowNum/1000)}K-{colsNum}Col_{dist}'
     # name = 'dmv-tiny'
     # name = 'dmv-clean'
     # name  = 'linitem_1000'
@@ -357,8 +378,19 @@ if __name__ == "__main__":
     # table = datasets.LoadRandomWalk(100, int(1e6))
     # name = "UniData-1000K-2Col_Skew"
     # name = f'ECG_{dist}'
+    name = 'lineitem'
+    block_size = 60000
+    # cols = ['l_shipdate', 'l_returnflag', 'l_shipinstruct', 'l_quantity', 'l_receiptdate']
+    cols = ['l_shipdate', 'l_discount', 'l_quantity']
+    table = datasets.LoadLineitem('lineitem.tbl', cols=cols)
+    df, original_df = MakeZorder(table, name, cols)
+    dist = 'UNI'
+ 
+
     print(f"Test ./datasets/{name}-zorder.csv")
     df = pd.read_csv(f"./datasets/{name}-zorder.csv")
+    type_casts = {'l_receiptdate': np.datetime64, 'l_shipdate': np.datetime64}
+    cast_type(df, type_casts)
     # ZorderBlock(table.data, all_cols, block_size, dist=dist, our=our)
     ftype = 'range_partition'
     print("Test Range Partition ...")

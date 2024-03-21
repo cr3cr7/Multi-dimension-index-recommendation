@@ -13,3 +13,4 @@ checkpoints
 wandb/*
 *.png
 *.pkl
+*.log

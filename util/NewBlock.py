@@ -45,7 +45,9 @@ def QueryGeneration(nums, train_data: pd.DataFrame, cols, table: common.CsvTable
         # Choose Number of Columns 
         # query_cols_nums = random.randint(1, len(cols))
         # query_cols_nums = train_data.shape[1]
-        # query_cols_nums = 10
+        query_cols_nums = 10
+        if query_cols_nums > len(cols):
+            query_cols_nums = len(cols)
         if dist == "UNI":
             qcols, qops, qvals, qranges = generateQuery.SampleTupleThenRandom(cols, query_cols_nums, rng, train_data)
         elif dist == "GAU":
@@ -266,7 +268,7 @@ class BlockDataset(data.Dataset):
     def _is_scan(self, qcols, qranges):
         for idx, i in enumerate(qcols):
             if self.cols_min.get(i, False):
-                if i == 'Reg Valid Date' or i == 'Reg Expiration Date':
+                if 'date' in i.lower():
                     qranges[idx][0] = pd.to_datetime(qranges[idx][0])
                     qranges[idx][1] = pd.to_datetime(qranges[idx][1])
                 #print("qcol: ", i)
@@ -354,10 +356,25 @@ class BlockDataset_V2(data.Dataset):
             [self.Discretize(c) for c in self.table.Columns()], axis=1)
         # TODO: Original Data or Discrete data?
         # self.orig_tuples_np = table.data.to_numpy()
+        # Preprossing    
+        from sklearn import preprocessing
+        # log transformation
+        # self.orig_tuples_np = np.log(self.orig_tuples_np + 1)
+        # self.orig_tuples_np = preprocessing.scale(self.orig_tuples_np)
+        # self.orig_tuples_np = preprocessing.minmax_scale(self.orig_tuples_np,
+        #                                                  feature_range=(0, 100))
+        # self.orig_tuples_np = preprocessing.normalize(self.orig_tuples_np, norm='l2')
+        # Get rank index minmax for each feature
+        # mins = np.min(self.orig_tuples_np, axis=0)
+        # maxs = np.max(self.orig_tuples_np, axis=0)
+        mean = np.mean(self.orig_tuples_np, axis=0)
+        std = np.std(self.orig_tuples_np, axis=0)
+        self.feature_stats = (mean, std)
+
         self.orig_tuples = torch.as_tensor(
             self.orig_tuples_np.astype(np.float32, copy=False))
-        self.tuples_df = pd.DataFrame(self.orig_tuples_np)
-        self.tuples_df.columns = self.table.ColumnNames()
+        # self.tuples_df = pd.DataFrame(self.orig_tuples_np)
+        # self.tuples_df.columns = self.table.ColumnNames()
         # self.tuples_df.to_csv(f"datasets/{table.name}_tuples_df.csv", index=False)
         print('done, took {:.1f}s'.format(time.time() - s))
         
@@ -378,7 +395,7 @@ class BlockDataset_V2(data.Dataset):
         if not os.path.exists(save_path):
             raise ValueError(f"Scan condation file {save_path} not exists!")
             self.testQuery, self.testScanConds = QueryGeneration(100, self.table.data.loc[:, cols], self.cols)
-            # pickle.dump(scan_conds, open(save_path, "wb"))
+            pickle.dump(self.testScanConds, open(save_path, "wb"))
         else:
             
             if table.name == "RandomWalk-10K-100Col":
@@ -412,24 +429,28 @@ class BlockDataset_V2(data.Dataset):
         self.SampledData = []
         self.SampledIdx = []
         self.Selectivity = []
-        if 'UniData' in table.name:
-            self.testScanConds = self.testScanConds[:100]
-        for one_batch_index in range(len(self.testScanConds)):
-            one_batch_query_cols, one_batch_val_ranges = self.testScanConds[one_batch_index]
-            preds = []
-            for col, (min_, max_) in zip(one_batch_query_cols, one_batch_val_ranges):
-                if col in ['Reg Valid Date', 'Reg Expiration Date', 'VIN', 'County', 'City'] \
-                    + ['Record Type','Registration Class','State','County','Body Type','Fuel Type','Color','Scofflaw Indicator','Suspension Indicator','Revocation Indicator']:
-                    preds.append(f"(self.table.data['{col}'] >= '{min_}')")
-                    preds.append(f"(self.table.data['{col}'] <= '{max_}')")
-                else:
-                    preds.append(f"(self.table.data['{col}'] >= {min_})")
-                    preds.append(f"(self.table.data['{col}'] <= {max_})")
-            query = " & ".join(preds)
-            data, idx = self.Sample(self.table, query)
-            # print(idx)
-            self.Selectivity.append(data.shape[0] / self.table.data.shape[0])
-            self.SampledIdx.extend(idx)
+        # if 'UniData' in table.name:
+        #     self.testScanConds = self.testScanConds[:100]
+        # for one_batch_index in range(len(self.testScanConds)):
+        #     one_batch_query_cols, one_batch_val_ranges = self.testScanConds[one_batch_index]
+        #     preds = []
+        #     for col, (min_, max_) in zip(one_batch_query_cols, one_batch_val_ranges):
+        #         if ('date' in col.lower()) or col in ['Reg Valid Date', 'Reg Expiration Date', 'VIN', 'County', 'City'] \
+        #             + ['Record Type','Registration Class','State','County','Body Type','Fuel Type','Color','Scofflaw Indicator','Suspension Indicator','Revocation Indicator',
+        #                'l_returnflag', 'l_shipinstruct']:
+        #             preds.append(f"(self.table.data['{col}'] >= '{min_}')")
+        #             preds.append(f"(self.table.data['{col}'] <= '{max_}')")
+        #         else:
+        #             preds.append(f"(self.table.data['{col}'] >= {min_})")
+        #             preds.append(f"(self.table.data['{col}'] <= {max_})")
+        #     query = " & ".join(preds)
+        #     data, idx = self.Sample(self.table, query)
+        #     # print(idx)
+        #     self.Selectivity.append(data.shape[0] / self.table.data.shape[0])
+        #     self.SampledIdx.extend(idx)
+
+        # eliminate duplicate idx
+        self.SampledIdx = list(set(self.SampledIdx))
         print("Sampling Finished!")
         print("Sampling Data Length: ", len(self.SampledIdx))
         print("Average Selectivity: ", np.mean(self.Selectivity))
@@ -523,7 +544,7 @@ class BlockDataset_V2(data.Dataset):
     def _is_scan(self, qcols, qranges):
         for idx, i in enumerate(qcols):
             if self.cols_min.get(i, False):
-                if i == 'Reg Valid Date' or i == 'Reg Expiration Date':
+                if 'date' in i.lower():
                     qranges[idx][0] = pd.to_datetime(qranges[idx][0])
                     qranges[idx][1] = pd.to_datetime(qranges[idx][1])
                 #print("qcol: ", i)
@@ -585,7 +606,7 @@ class BlockDataset_Eval(data.Dataset):
                        pad_size: int,
                        orig_tuples_np: np.ndarray,
                        orig_tuples: torch.tensor,
-                       tuples_df: pd.DataFrame,
+                    #    tuples_df: pd.DataFrame,
                        testQuery: list,
                        testScanConds: list,
                        rand: bool = False,
@@ -594,7 +615,7 @@ class BlockDataset_Eval(data.Dataset):
         self.table = table
         self.orig_tuples_np = orig_tuples_np
         self.orig_tuples = orig_tuples
-        self.tuples_df = tuples_df
+        # self.tuples_df = tuples_df
         
         self.testQuery = testQuery
         self.testScanConds = testScanConds
@@ -604,3 +625,57 @@ class BlockDataset_Eval(data.Dataset):
     
     def __len__(self):
         return len(self.orig_tuples)    
+    
+
+class BlockDataset_Shadow(BlockDataset_V2):
+    """Wrap a Block and yield one Row as Pytorch Dataset element."""
+    
+    def __init__(self, parent: BlockDataset_V2,
+                       priority_list = []
+                       ):
+        self.table = parent.table
+        self.orig_tuples_np = parent.orig_tuples_np
+        self.orig_tuples = parent.orig_tuples
+        # self.tuples_df = tuples_df
+        
+        self.testQuery = parent.testQuery
+        self.testScanConds = parent.testScanConds
+        self.pad_size = parent.pad_size
+        
+        self.priority_list = priority_list
+        self.rand = parent.rand
+        self.cols = parent.cols
+        self.SampledIdx = parent.SampledIdx
+        # assert len(self.SampledIdx) > 0
+        if not self.priority_list:
+            self.priority_list = parent.SampledIdx
+        
+    def __getitem__(self, idx):
+        _, scan_conds = self.getQuery(rand=self.rand)
+        # print("qcols: ", scan_conds[0][0], "qrange: ", scan_conds[0][1])
+        
+        # Define the desired size of the padded tensor
+        desired_size = (self.pad_size, len(self.cols))
+         
+        # Sample data that satisfy the query
+        # sample_size = int(self.pad_size * 1 / 3) if int(self.pad_size * 1 / 3) < len(self.priority_list) else len(self.priority_list)
+        # ix_1 = torch.Tensor(random.sample(self.priority_list, sample_size)).long()
+        # ix_1 = torch.Tensor(self.priority_list[:sample_size]).long()
+        
+        # No Sample
+        sample_size = 0
+        ix_1 = torch.Tensor([]).long()
+        
+        # Sample random data
+        ix_2 = torch.randint(0, self.orig_tuples.shape[0], (self.pad_size - sample_size,))
+        ix = torch.cat([ix_1, ix_2], dim=0)
+        train_tuples = self.orig_tuples[ix]
+        
+        # FIXME: Padding Columns Number
+        # block(batch, card, cols)  query(batch, card, cols)  result(batch, 1)
+        item = {'table': train_tuples, \
+                'table_idx': ix, \
+                'col': scan_conds[idx][0],\
+                'range': scan_conds[idx][1]}
+        return item
+    

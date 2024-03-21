@@ -268,7 +268,7 @@ class AutoEncoder(nn.Module):
         self.dmodel = dmodel
     
         
-        hs = [256, 128, col_num]
+        hs = [128, 64, col_num]
         self.net = []
         activation=nn.ReLU
         residual_connections = True
@@ -568,7 +568,7 @@ class RankingModel_v3(nn.Module):
 
 class RankingModel_v2(nn.Module):
     
-    def __init__(self, BlockSize, BlockNum, col_num, dmodel, input_bins, sparse, if_pretraining):
+    def __init__(self, BlockSize, BlockNum, col_num, dmodel, input_bins, sparse, if_pretraining, feature_stats):
         super(RankingModel_v2, self).__init__()
         self.capacity = BlockSize
         self.BlockNum = BlockNum
@@ -577,10 +577,28 @@ class RankingModel_v2(nn.Module):
         self.input_bins = input_bins
         self.sparse = sparse
         self.if_pretraining = if_pretraining
+        self.feature_stats = feature_stats
+
+        self.normalization = True
+        if self.normalization:
+            self.mins, self.maxs = self.feature_stats
         
         if self.sparse:
             self.SparseLayer = InputDimAttention(input_dim=col_num)
         
+        # Make Embedding table for each columns
+        self.embed_size = 2
+        NoEmbed = False
+        if NoEmbed:
+            self.embed_size = 0
+        self.embeddings = nn.ModuleList()
+        for i, dist_size in enumerate(self.input_bins):
+            if dist_size <= self.embed_size or NoEmbed:
+                embed = None
+            else:
+                embed = nn.Embedding(dist_size, self.embed_size)
+            self.embeddings.append(embed)
+
         activation=nn.ReLU
         residual_connections = True
         
@@ -588,7 +606,7 @@ class RankingModel_v2(nn.Module):
         # self.net2 = self.build_net([256, 128, 32, 1], residual_connections, activation)
         self.d_model = 4
         # self.net1 = self.build_net([self.col_num] + [128, 256, 256, 256, 256], residual_connections, activation)
-        self.net2 = self.build_net([256, 128, 128, 32, 1], residual_connections, activation)
+        self.net2 = self.build_net([128, 128, 32, 1], residual_connections, activation)
         # self.net2 = self.build_net([col_num, 32, 128, 32, 1], residual_connections, activation)
         # self.net_k =self.build_net([1, self.d_model, self.d_model], residual_connections, activation)
         
@@ -618,8 +636,8 @@ class RankingModel_v2(nn.Module):
         
         # Sparse Layers Block
         layer_1 = 32
-        self.SparseLayer_1 = InputDimAttention(input_dim=col_num)
-        self.MLP_v1 = self.build_net([self.col_num, 16, layer_1], residual_connections, activation)
+        self.SparseLayer_1 = InputDimAttention(input_dim=col_num * (self.embed_size + 1))
+        self.MLP_v1 = self.build_net([col_num * (self.embed_size + 1), 16, layer_1], residual_connections, activation)
         
         layer_2 = 256
         # layer_2 = 128
@@ -630,15 +648,19 @@ class RankingModel_v2(nn.Module):
         self.MLP_v3 = self.build_net([layer_2, 256, 128, 256], residual_connections, activation)
         # self.MLP_v3 = self.build_net([layer_2, 128, 256], residual_connections, activation)
         
-        # self.SparseLayer_4 = InputDimAttention(input_dim=256)
-        # self.MLP_v4 = self.build_net([layer_2, 256, 128], residual_connections, activation)
+        self.SparseLayer_4 = InputDimAttention(input_dim=256)
+        self.MLP_v4 = self.build_net([layer_2, 256, 128], residual_connections, activation)
         
         # self.blocks = nn.Sequential(*[
         #     AdaCurveBlock(col_num, col_num, activation, do_residual=True)
         #     for i in range(6)
         # ])
         
-        # self.AE = AutoEncoder(col_num, dmodel)
+        self.AE = AutoEncoder(col_num, dmodel)
+        self.ln1 = nn.LayerNorm(col_num * (self.embed_size + 1))
+        self.ln2 = nn.LayerNorm(256)
+        self.ln3 = nn.LayerNorm(256)
+        self.ln4 = nn.LayerNorm(256)
         # from diffsort import DiffSortNet
         # self.sorter = DiffSortNet('odd_even', size=100)
         
@@ -664,15 +686,21 @@ class RankingModel_v2(nn.Module):
         # table = table.reshape(-1, rows, 1)
         # table = self.net_k(table)
         # z = self.blocks(table).reshape(-1, rows, self.col_num * self.d_model)
-        
-        z, att_1 = self.SparseLayer_1(table)
+        table_embed = self.GetEmbedding(table)
+        # for i in range(self.col_num):
+        #     table[:, :, i] = (table[:, :, i] - self.mins[i]) / self.maxs[i]
+        table_embed = self.ln1(table_embed)
+        z, att_1 = self.SparseLayer_1(table_embed)
         z = self.MLP_v1(z)
         z, att_2 = self.SparseLayer_2(z)
         z = self.MLP_v2(z)
+        z = self.ln2(z)
         z, att_3 = self.SparseLayer_3(z)
+        z = self.ln3(z)
         z = self.MLP_v3(z)
-        # z, att_4 = self.SparseLayer_4(z)
-        # z = self.MLP_v4(z)
+        z, att_4 = self.SparseLayer_4(z)
+        z = self.ln4(z)
+        z = self.MLP_v4(z)
         
         # z = self.blocks(table)
         # att_1 = 0
@@ -681,8 +709,11 @@ class RankingModel_v2(nn.Module):
         scores = self.net2(z).reshape(-1, rows)
         
         # scores = nn.Tanh()(scores)
-        # loss, _ = self.AE(z, table)
-        loss = 0.0
+        if self.normalization:
+            for i in range(self.col_num):
+                table[:, :, i] = (table[:, :, i] - self.mins[i]) / self.maxs[i]
+        loss, _ = self.AE(z, table)
+        # loss = 0.0
         
         # scores = self.net(table).reshape(-1, rows)
         if self.if_pretraining:
@@ -696,7 +727,7 @@ class RankingModel_v2(nn.Module):
             
         min_vals = torch.min(scores, dim=1, keepdim=True)[0]
         max_vals = torch.max(scores, dim=1, keepdim=True)[0]
-        scaled_scores = ((scores - min_vals) / (max_vals - min_vals)) * len(table)
+        scaled_scores = ((scores - min_vals) / (max_vals - min_vals) + 1) * len(table)
         # scaled_scores = scores
         
         # regularization_strength = (0.995)**current_epoch
@@ -761,6 +792,29 @@ class RankingModel_v2(nn.Module):
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
             # nn.init.kaiming_uniform_(module.weight, mode='fan_in', nonlinearity='relu')
             # nn.init.xavier_uniform_(module.weight)
+    
+    def GetEmbedding(self, table):
+        # table shape: (batch_size, RowNum, colNum)
+        # let table get embedding and concat with table
+        batch_size, RowNum, colNum = table.shape 
+        processed_cols = []
+        for i in range(colNum):
+            col = table[:, :, i]  # Shape: [batch_size, RowNum]
+            if self.embeddings[i] is not None:
+                # Embed the column (assuming categorical data)
+                col_embed = self.embeddings[i](col.long())  # Shape: [batch_size, RowNum, embed_size]
+                col = col.unsqueeze(-1)  # Add dimension for concatenation: [batch_size, RowNum, 1]
+                # Concatenate original column (expanded) with its embedding
+                # Transform col feature with min max
+                if self.normalization:
+                    col = (col - self.mins[i]) / self.maxs[i]
+                col = torch.cat([col, col_embed], dim=2)  # Shape: [batch_size, RowNum, 1 + embed_size]
+            else:
+                # For columns without embedding, simply add a dimension to keep consistent shape
+                col = col.unsqueeze(-1)  # Shape: [batch_size, RowNum, 1]
+            processed_cols.append(col)# Concatenate all processed columns along the last dimension
+        table_processed = torch.cat(processed_cols, dim=2)  # Shape: [batch_size, RowNum, colNum * (1 + embed_size)]
+        return table_processed
         
 class RankingModel_v2_(nn.Module):
     def __init__(self, BlockSize, BlockNum, col_num, dmodel, input_bins, sparse, if_pretraining):

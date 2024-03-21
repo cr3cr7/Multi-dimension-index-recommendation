@@ -11,8 +11,8 @@ import common
 def LoadDmv(filename='dmv-clean.csv', 
             cols=['VIN','City','Zip','County','Reg Valid Date','Reg Expiration Date', 'zvalue'], zvalue=False, dist=None):
     csv_file = './datasets/{}'.format(filename)
-    cols = ['Record Type', 'VIN', 'Registration Class', 'City', 'State', 'Zip', 'County', 
-            'Body Type', 'Fuel Type', 'Reg Valid Date', 'Reg Expiration Date', 'Color',
+    cols = ['Record Type', 'VIN', 'Registration Class', 'City', 'State', 'Zip', 'County', \
+            'Body Type', 'Fuel Type', 'Reg Valid Date', 'Reg Expiration Date', 'Color', \
             'Scofflaw Indicator', 'Suspension Indicator', 'Revocation Indicator']  
     cols = [cols[1], cols[3], cols[5], cols[6], cols[9], cols[10]]
     if 'dmv-clean' in filename:
@@ -34,38 +34,48 @@ def LoadDmv(filename='dmv-clean.csv',
 
 
 def LoadLineitem(filename='lineitem.csv', cols=[]):
-   '''
-   l_orderkey         1500000
-   l_partkey           200000
-   l_suppkey            10000
-   l_linenumber             7
-   l_quantity              50
-   l_extendedprice     933900
-   l_discount              11
-   l_tax                    9
-   l_returnflag             3
-   l_linestatus             2
-   l_shipdate            2526
-   l_commitdate          2466
-   l_receiptdate         2554
-   l_shipinstruct           4
-   l_shipmode               7
-   l_comment          4580667
-   '''
-   
-   csv_file = './datasets/{}'.format(filename)
+    lineitem_columns = [
+    "l_orderkey",
+    "l_partkey",
+    "l_suppkey",
+    "l_linenumber",
+    "l_quantity",
+    "l_extendedprice",
+    "l_discount",
+    "l_tax",
+    "l_returnflag",
+    "l_linestatus",
+    "l_shipdate",
+    "l_commitdate",
+    "l_receiptdate",
+    "l_shipinstruct",
+    "l_shipmode",
+    "l_comment"
+    ]
+    type_casts = {'l_receiptdate': np.datetime64, 'l_commitdate': np.datetime64, 'l_shipdate': np.datetime64}
 
-   # cols = ['l_orderkey', 'l_partkey', 'l_suppkey', 'l_linenumber', 'l_quantity',
-   #     'l_extendedprice', 'l_discount', 'l_tax', 'l_returnflag',
-   #     'l_linestatus', 'l_shipdate', 'l_commitdate', 'l_receiptdate',
-   #     'l_shipinstruct', 'l_shipmode', 'l_comment']
-    
+    csv_file = './datasets/{}'.format(filename)
+    table = pd.read_table(csv_file, 
+                          sep='|', 
+                          header=None, 
+                          names=lineitem_columns, 
+                        #   nrows=1000000
+                          )[cols]
+    for col, typ in type_casts.items():
+        if col not in table.columns:
+            continue
+        if typ != np.datetime64:
+            table[col] = table[col].astype(typ, copy=False)
+        else:
+            table[col] = pd.to_datetime(table[col], 
+                                        infer_datetime_format=True, 
+                                        cache=True)
    # Note: other columns are converted to objects/strings automatically.  We
    # don't need to specify a type-cast for those because the desired order
    # there is the same as the default str-ordering (lexicographical).
    
    # return common.CsvTable(filename, csv_file, cols, sep='|')
-   return common.CsvTable("Lineitem", csv_file, cols, sep=',')
+    return common.CsvTable("lineitem", table, cols)
 
 
 def LoadRandomWalk(colsNum, rowNum, dist, zvalue=False):
@@ -86,6 +96,8 @@ def LoadRandomWalk(colsNum, rowNum, dist, zvalue=False):
         n_steps = rowNum
         steps = np.random.normal(0, 1, size=(n_series, n_steps))
         position = np.cumsum(steps, axis=1).T
+        if 'zvalue' in cols:
+            cols.pop(-1)
         df = pd.DataFrame(position, columns=cols)
         # Save dataframe to csv file
         df.to_csv(f'./datasets/{filename}', header=True, index=False)
@@ -166,7 +178,7 @@ def LoadUniData(filename, cols=['col_0','col_1'], zvalue=False):
     if zvalue:
         cols.append('zvalue')
         # csv_file = csv_file.split('.csv')[0] + "-zorder.csv"
-    csv_file = pd.read_csv(csv_file, nrows=int(1e6))
+    csv_file = pd.read_csv(csv_file, nrows=int(1e6), usecols=cols)
     return common.CsvTable('UniData', csv_file, cols, sep=',')
 
 if __name__ == '__main__':
@@ -174,6 +186,9 @@ if __name__ == '__main__':
    # print(table.data.info())
 #    LoadRandomWalk(100, 10000)
     # LoadGAUDataset(100, int(1e6), dist="UNI")
-    dataset = pd.read_csv('./datasets/GAUData-1000K-100Col_UNI.csv', usecols=['0', '1', '2'])
-    visualize_distribution(dataset)
+    # table = LoadGAUDataset(3, 2 * int(1e4), dist='GAU', zvalue=False)
+    table = LoadRandomWalk(3, 2 * int(1e4), dist='UNI', zvalue=False)
+    
+    # dataset = pd.read_csv('./datasets/GAUData-1000K-100Col_UNI.csv', usecols=['0', '1', '2'])
+    # visualize_distribution(dataset)
       

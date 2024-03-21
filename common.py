@@ -343,7 +343,7 @@ def Discretize(col, data=None):
         assert isnan[0], isnan
 
         dvs = col.all_distinct_values[1:]
-        bin_ids = pd.Categorical(data, categories=dvs).codes
+        bin_ids = pd.Categorical(data, categories=dvs, ordered=True).codes
         assert len(bin_ids) == len(data)
 
         # Since nan/nat bin_id is supposed to be 0 but pandas returns -1, just
@@ -352,7 +352,7 @@ def Discretize(col, data=None):
     else:
         # This column has no nan or nat values.
         dvs = col.all_distinct_values
-        bin_ids = pd.Categorical(data, categories=dvs).codes
+        bin_ids = pd.Categorical(data, categories=dvs, ordered=True).codes
         assert len(bin_ids) == len(data), (len(bin_ids), len(data))
         #add 1 to everybody for padding, 0 is reserved for padding
         bin_ids = bin_ids + 1

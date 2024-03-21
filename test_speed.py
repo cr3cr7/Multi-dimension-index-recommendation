@@ -4,7 +4,7 @@ from datasets import LoadRandomWalk
 import interleavebits
 import time
 
-from model.generation import RankingModel_v2
+from model.generation import RankingModel_v2, RankingModel_v4
 from util.NewBlock import BlockDataset_Eval
 from torch.utils import data
 import torch
@@ -70,18 +70,20 @@ def test_curve_construction_time(type, cols, rows):
         torch_data = torch.from_numpy(discrete_data.astype(np.float32, copy=False))
         dataset = EvalDataset(torch_data)
         data_loader = data.DataLoader(dataset, batch_size=256, num_workers=0, shuffle=False)
-        ranking_model = RankingModel_v2(0, 
-                                        0, 
-                                        len(df.columns), 
-                                        0,
-                                        input_bins=[],
-                                        sparse=False,
-                                        if_pretraining=False)
+        # ranking_model = RankingModel_v2(0, 
+        #                                 0, 
+        #                                 len(df.columns), 
+        #                                 0,
+        #                                 input_bins=[],
+        #                                 sparse=False,
+        #                                 if_pretraining=False)
+        ranking_model = RankingModel_v4(len(df.columns), 2, 
+                                             input_bins=[len(dataset) for c in df.columns])
         ranking_model.eval()
         results = []
         t1 = time.time()
         for i, (table, idx) in enumerate(data_loader):
-            print(table.shape)
+            # print(table.shape)
             with torch.no_grad():
                 results.append(ranking_model(table,
                                             0, i, None).numpy())
@@ -104,7 +106,7 @@ if __name__ == "__main__":
     #     test_curve_construction_time(cur_type, col, row)
         
 
-    print("Row Scale up test ...")
+    # print("Row Scale up test ...")
     # cols = [3, 3, 3, 3] + [3, 3, 3, 3]
     # rows = [int(1e4), int(1e5), int(1e6), int(1e7)] * 2
     # types = ['zorder'] * 4 + ['ML'] * 4
@@ -114,12 +116,27 @@ if __name__ == "__main__":
     # int(1e5), int(1e6), int(1e7)] 
     # types = ['ML'] * 4
     
-    cols = [4, 3, 5]
-    rows = [int(1e4)] * 3
-    types = ['ML'] * 3
+    # cols = [4, 3, 5]
+    # rows = [int(1e4)] * 3
+    # types = ['ML'] * 3
     
+    
+    # for cur_type, col, row in zip(types, cols, rows):
+    #     test_curve_construction_time(cur_type, col, row)
+    
+    print("Col Scale up test ...")
+    cols = [2, 4, 8, 16]
+    rows = [int(1e6)] * 4
+    types = ['ML'] * 4
     
     for cur_type, col, row in zip(types, cols, rows):
         test_curve_construction_time(cur_type, col, row)
-    
+        
+    print("Row Scale up test ...")
+    cols = [3, 3, 3, 3]
+    rows = [int(1e4), int(1e5), int(1e6), int(1e7)]
+    types = ['ML'] * 4
+
+    for cur_type, col, row in zip(types, cols, rows):
+        test_curve_construction_time(cur_type, col, row)
     

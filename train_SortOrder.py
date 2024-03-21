@@ -59,15 +59,21 @@ def main(args):
     # trainer = Trainer.from_argparse_args(args, accelerator='gpu', gpus=1, log_every_n_steps=1)
     # trainer = Trainer.from_argparse_args(args, accelerator='gpu', devices=[2], fast_dev_run=True)
     trainer = Trainer.from_argparse_args(args, accelerator='gpu', 
-                                         devices=[2],
+                                         devices=[3],
                                          accumulate_grad_batches=100,
                                        #  strategy=,
                                          log_every_n_steps=1, 
                                          gradient_clip_val=0.5, 
                                          check_val_every_n_epoch=args.check_val, 
+                                        #  limit_val_batches=0,
                                          max_epochs=args.epochs,
                                          # For assert in Validation
-                                         num_sanity_val_steps=0)
+                                         num_sanity_val_steps=0,
+                                         # Reload Dataloader
+                                         reload_dataloaders_every_n_epochs=1,
+                                        #  track_grad_norm=2,
+                                        #  fast_dev_run=True
+                                         )
     # trainer = Trainer.from_argparse_args(args, accelerator='cpu', fast_dev_run=True, limit_train_batches=2)
     trainer.fit(model)
 
@@ -75,7 +81,8 @@ if __name__ == '__main__':
     parser = ArgumentParser()
     # Basic Training Control
     parser.add_argument('--batch_size', default=512, type=int)
-    parser.add_argument('--num_workers', default=8, type=int)
+    # FIXME: num_worker=0, 速度提升很大
+    parser.add_argument('--num_workers', default=0, type=int)
     parser.add_argument('--seed', default=1234, type=int)
     parser.add_argument('--lr', default=1e-3, type=float)
 
@@ -83,7 +90,7 @@ if __name__ == '__main__':
     parser.add_argument('--lr_scheduler', default=None, choices=['step', 'cosine', 'onecycler'], type=str)
     parser.add_argument('--lr_decay_steps', default=100, type=int)
     parser.add_argument('--lr_decay_rate', default=0.5, type=float)
-    parser.add_argument('--lr_decay_min_lr', default=0.5e-3, type=float)
+    parser.add_argument('--lr_decay_min_lr', default=1e-4, type=float)
 
     # Restart Control
     parser.add_argument('--load_path', default=None, type=str)
@@ -109,7 +116,9 @@ if __name__ == '__main__':
                                                                             'dmv',
                                                                             'GAUData',
                                                                             'UniData',
-                                                                            'ECG'], help='Dataset.')
+                                                                            'ECG',
+                                                                            'data_trans',
+                                                                            'query_trans'], help='Dataset.')
     parser.add_argument('--rand', type=str, default=False, help='Whether generate random queries every new batch (for debug purpose).')
     parser.add_argument('--data_dir', default='ref/data', type=str)
     parser.add_argument('--model_name', default='transformer', type=str)

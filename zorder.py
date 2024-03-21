@@ -35,7 +35,7 @@ class ALLBlock:
     def _is_scan(self, qcols, qranges):
         for idx, i in enumerate(qcols):
             if self.cols_min.get(i, False):
-                if i == 'Reg Valid Date' or i == 'Reg Expiration Date':
+                if 'date' in i.lower():
                     qranges[idx][0] = pd.to_datetime(qranges[idx][0])
                     qranges[idx][1] = pd.to_datetime(qranges[idx][1])
                 if self.cols_min[i] > qranges[idx][1] or self.cols_max[i] < qranges[idx][0]:
@@ -64,9 +64,7 @@ def Zorder(df, cols, original_df, name):
     # df.sort_values(by="zvalue").to_csv("./datasets/dmv-tiny-zorder.csv", index=False)
 
 
-
-
-def ZorderBlock(df, cols, block_size, dist, our=None):
+def LoadScanCondation(cols, name):
     cols_num = len(cols)
     save_path = f"./datasets/scan_condation_{name}.pkl"
     # save_path = f"./datasets/scan_condation_{cols_num}Cols.pkl"
@@ -74,6 +72,8 @@ def ZorderBlock(df, cols, block_size, dist, our=None):
         save_path = f"./datasets/scan_condation_{name.split('-zorder')[0]}.pkl"
     if "UniData" in name:
         save_path = f"./datasets/scan_condation_UniData-1000K-2Col_Skew.pkl"
+    if "dmv" in table.name or "Lineitem" in table.name:
+            save_path = f"./datasets/scan_condation_{cols_num}Cols.pkl"
     if not os.path.exists(save_path):
         # assert 0
         print(f'Dont find scan condations {save_path}, generating ...')
@@ -89,7 +89,36 @@ def ZorderBlock(df, cols, block_size, dist, our=None):
         scan_conds = pickle.load(open(save_path, "rb"))
     if 'UniData' in name:
         scan_conds = scan_conds[:100]
-    
+    print("Workload Len: ", len(scan_conds))
+    return scan_conds
+
+
+def ZorderBlock(df, cols, block_size, dist, our=None):
+    cols_num = len(cols)
+    save_path = f"./datasets/scan_condation_{name}.pkl"
+    # save_path = f"./datasets/scan_condation_{cols_num}Cols.pkl"
+    if '-zorder' in name:
+        save_path = f"./datasets/scan_condation_{name.split('-zorder')[0]}.pkl"
+    if "UniData" in name:
+        save_path = f"./datasets/scan_condation_UniData-1000K-2Col_Skew.pkl"
+    if "dmv" in table.name or "Lineitem" in table.name:
+            save_path = f"./datasets/scan_condation_{cols_num}Cols.pkl"
+    if not os.path.exists(save_path):
+        # assert 0
+        print(f'Dont find scan condations {save_path}, generating ...')
+        if 'zvalue' in cols:
+            # remove
+            cols.remove('zvalue')
+        Queries, scan_conds = QueryGeneration(100, df.loc[:, cols], cols, dist=dist, query_cols_nums=3)
+        # pickle.dump(Queries, open(f"./datasets/Queries_{name}.pkl", "wb"))
+        # pickle.dump(Queries, open(f"./datasets/Queries_{cols_num}Cols.pkl", "wb"))
+        pickle.dump(scan_conds, open(save_path, "wb"))
+    else:
+        print(f"Load scan condations: {save_path}")
+        scan_conds = pickle.load(open(save_path, "rb"))
+    if 'UniData' in name:
+        scan_conds = scan_conds[:100]
+    print("Len: ", len(scan_conds))
     get_selectivity(df, scan_conds)
     
     df = df.sort_values(by="zvalue")
@@ -124,7 +153,7 @@ def ZorderBlock(df, cols, block_size, dist, our=None):
 
 
 def LoadDmv(filename='dmv-clean.csv', 
-            cols=['VIN','City','Zip','County','Reg Valid Date','Reg Expiration Date', 'zvalue'], zvalue=True, dist=None):
+            cols=['VIN','City','Zip','County','Reg Valid Date','Reg Expiration Date'], zvalue=True, dist=None):
     csv_file = './datasets/{}'.format(filename)
     if zvalue:
         cols.append('zvalue')
@@ -232,7 +261,49 @@ def LoadUniData(filename, cols=['col_0','col_1'], zvalue=False):
         csv_file = csv_file.split('.csv')[0] + "-zorder.csv"
     csv_file = pd.read_csv(csv_file, nrows=int(1e6))
     return common.CsvTable('UniData', csv_file, cols, sep=',')
-        
+    
+    
+def testRangePartition(df, name, cols, block_size, dist, ftype):
+    """Navie Implementation as Sorting"""
+    scan_conds = LoadScanCondation(cols, name)
+    
+    if ftype == 'range_partition':
+        sortcol = find_most_cols(scan_conds)
+    elif ftype == 'random':
+        sortcol = '0'
+        if "UniData" in name:
+            sortcol = 'col_0'
+    elif 'zorder':
+        sortcol = 'zvalue'
+    else:
+        raise NotImplementedError
+    print("Sort by ", sortcol)
+    assert sortcol in df.columns, sortcol
+    df = df.sort_values(by=sortcol)
+    num_of_blocks = math.ceil(df.shape[0] / block_size)
+    df['block_id'] = [i // block_size for i in range(0, df.shape[0])]
+    Blocks = ALLBlock(df, block_size, cols)
+    scan = 0
+    for i in range(0, num_of_blocks):
+        Blocks.zero_except_id(i)
+        for j in range(0, len(scan_conds)):
+            cur_scan_conds = scan_conds[j]
+            scan += int(Blocks._is_scan(cur_scan_conds[0], cur_scan_conds[1]))
+    print("scan", scan)
+
+def find_most_cols(scan_cond):
+    import pickle
+    from collections import Counter
+    query = scan_cond
+    # count cols that has most predicates
+    cols = []
+    for one_query in query:
+        query_col, query_range = one_query
+        colname = [str(current_col) for current_col in query_col] 
+        cols.extend(colname)
+    return Counter(cols).most_common(1)[0][0]
+
+    
 if __name__ == "__main__":
     # process_ecg_tiny("./datasets/ptbdb_normal.csv")
     # process_ecg("./datasets/physionet.org/files/ptbdb/1.0.0/")
@@ -241,33 +312,36 @@ if __name__ == "__main__":
     # original_df = pd.read_csv("./datasets/dmv-tiny.csv")
     # cols = original_df.columns.tolist()
     # print(cols)
-    # cols = ['VIN','City','Zip','County','Reg Valid Date','Reg Expiration Date']
-    cols = ['Record Type','Registration Class','State']
+    cols = ['Reg Valid Date','Reg Expiration Date']
+    all_cols = ['VIN','City','Zip','County','Reg Valid Date','Reg Expiration Date']
+    # cols = ['Record Type','Registration Class','State']
     # cols = ['Color', 'State']
     # cols = ['l_orderkey', 'l_partkey']
-    all_cols = ['Record Type','Registration Class','State','County','Body Type','Fuel Type','Reg Valid Date','Color','Scofflaw Indicator','Suspension Indicator','Revocation Indicator']
+    # all_cols = ['Record Type','Registration Class','State','County','Body Type','Fuel Type','Reg Valid Date','Color','Scofflaw Indicator','Suspension Indicator','Revocation Indicator']
     # Zorder(df, cols, original_df=original_df)
     
-    block_size = 10000
-    # block_size = 200
+    block_size = 50
+    # block_size = 50
     dist = 'GAU'
     # dist = "UNI"
     
 
-    rowNum = int(1e6)
-    colsNum = 100
+    # rowNum = int(1e6)
+    rowNum = int(10000) * 2
+    colsNum = 3
     cols = ['0', '1', '2']
     # cols = ['col_0', 'col_1']
     all_cols = list(map(str, range(colsNum)))
     # all_cols = ['col_0', 'col_1']
-    # name = f'RandomWalk-{int(rowNum/1000)}K-{colsNum}Col.csv'.split(".")[0]
+    name = f'RandomWalk-{int(rowNum/1000)}K-{colsNum}Col.csv'.split(".")[0]
     # name = f'GAUData-{int(rowNum/1000)}K-{colsNum}Col_{dist}'
     # name = 'dmv-tiny'
     # name = 'dmv-clean'
     # name  = 'linitem_1000'
     # table = LoadLineitem(f"{name}.csv", cols=cols)
+    # table = LoadDmv("dmv-tiny.csv", zvalue=True)
     # table = LoadDmv("dmv-clean.csv", cols=all_cols, dist=dist)
-    table = datasets.LoadRandomWalk(colsNum, rowNum, dist=dist, zvalue=True)
+    table = datasets.LoadRandomWalk(colsNum, rowNum, dist=dist, zvalue=False)
     # table = datasets.LoadGAUDataset(colsNum, rowNum, dist, zvalue=False)
     # table = process_ecg_tiny("./datasets/ptbdb_normal.csv", dist=dist)
     # table = LoadUniData('UniData-1000K-2Col_Skew.csv', cols=cols, zvalue=True)
@@ -280,6 +354,17 @@ if __name__ == "__main__":
     # our = 'lightning_logs/wandb/run-20231025_191701-f65s37nt/files/best_score.json'
     our = None
     ZorderBlock(table.data, all_cols, block_size, dist=dist, our=our)
+    ftype = 'range_partition'
+    # ftype = 'random'
+    # ftype = 'zorder'
+    testRangePartition(table.data, name, all_cols, block_size=block_size, dist=dist, ftype=ftype)
+    
+    # ftype = 'range_partition'
+    ftype = 'random'
+    testRangePartition(table.data, name, all_cols, block_size=block_size, dist=dist, ftype=ftype)
+    
+    ftype = 'zorder'
+    testRangePartition(table.data, name, all_cols, block_size=block_size, dist=dist, ftype=ftype)
 
 
     
