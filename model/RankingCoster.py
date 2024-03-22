@@ -10,7 +10,7 @@ from torch.utils.data import DataLoader
 #from data import datasets
 import torch.optim.lr_scheduler as lrs
 import datasets
-from util.NewBlock import RandomBlockGeneration, BlockDataset, BlockDataset_V2, BlockDataset_Eval, BlockDataset_Shadow
+from util.NewBlock import EvalType, BlockDataset_V2, BlockDataset_Eval, BlockDataset_Shadow
 from model.model_interface import ReportModel
 import torch.nn.functional as F
 from sklearn.metrics import f1_score, accuracy_score
@@ -27,6 +27,7 @@ from collections import deque
 import random
 
 TRANS_INVERTAL = 10000
+SIM_INTERVAL = 50
 
 class RankingCostTrainer(pl.LightningModule):
     def __init__(self, 
@@ -595,7 +596,10 @@ class RankingCostTrainer(pl.LightningModule):
             self.best_val_scan = scan
         # Free Memory
         self.validation_step_outputs.clear()
-        self.log_dict({'val_scan': float(scan)}, on_epoch=True, prog_bar=True)
+        if self.valset.GetEvalType() == EvalType.Real:
+            self.log_dict({'val_scan': float(scan)}, on_epoch=True, prog_bar=True)
+        else:
+            self.log_dict({'val_scan_SIM': float(scan)}, on_epoch=True, prog_bar=True)
         
         
     def validation_step(self, batch, batch_idx):
@@ -750,6 +754,7 @@ class RankingCostTrainer(pl.LightningModule):
         if stage == 'fit' or stage is None:
             self.trainset = BlockDataset_V2(table, self.hparams.train_block_size, self.cols, self.hparams.pad_size, rand=self.rand)
             self.valset = BlockDataset_Eval(**vars(self.trainset))
+            self.valset.SetEvalType(EvalType.Real)
 
         # Assign test dataset for use in dataloader(s)
         if stage == 'test' or stage is None:
@@ -789,11 +794,32 @@ class RankingCostTrainer(pl.LightningModule):
         pin_memory = True if "cuda" in str(self.device) else False
         
         dataset = self.hparams.dataset.lower()
+        import common 
+        if (self.current_epoch + 5) % SIM_INTERVAL == 0:
+            self.valset = BlockDataset_Eval(**vars(self.trainset))
+            self.valset.SetEvalType(EvalType.Real)
+            self.test_block_nums = math.ceil(
+                self.trainset.table.data.shape[0] / self.hparams.test_block_size)
+        else:
+            # Remember to reset index
+            length = int(1e6)
+            print("Set Sim Valset with legth: ", length)
+            temp_table = self.trainset.table.data.sample(n=length).reset_index(drop=True)
+            temp_table = common.CsvTable(self.trainset.table.name, temp_table, self.cols)
+            temp_trainset = BlockDataset_V2(temp_table, self.hparams.train_block_size, self.cols, self.hparams.pad_size, rand=self.rand)
+            tem_valset = BlockDataset_Eval(**vars(temp_trainset))
+            tem_valset.SetEvalType(EvalType.Sim)
+            self.valset = tem_valset
+            self.test_block_nums = math.ceil(
+                temp_table.data.shape[0] / self.hparams.test_block_size)
+
+
+
         # Create a shashow trainset every epoch, just copy the trainset attributes
         if dataset == 'data_trans' and self.current_epoch < TRANS_INVERTAL:
             print("Table Len:", len(self.trainset.table.data))
             if not len(self.trainset.table.data) == 10000:
-                import common
+                
                 rowNum = 2 * int(1e4)
                 colsNum = 3
                 dist = 'GAU'
@@ -860,12 +886,12 @@ class RankingCostTrainer(pl.LightningModule):
                 self.test_block_nums = math.ceil(table.data.shape[0] / self.hparams.test_block_size)
          
         # print("Queue Length: ", len(self.queue))
-        if self.current_epoch % 2 ==0:
-            prio_list = [element for tup in self.queue for element in tup]
-            # prio_list = list(self.diverse_queue)
-        else:
-            prio_list = self.trainset.SampledIdx
-        self.trainset = BlockDataset_Shadow(self.trainset, priority_list=prio_list)
+        # if self.current_epoch % 2 ==0:
+        #     prio_list = [element for tup in self.queue for element in tup]
+        #     # prio_list = list(self.diverse_queue)
+        # else:
+        #     prio_list = self.trainset.SampledIdx
+        # self.trainset = BlockDataset_Shadow(self.trainset, priority_list=prio_list)
         
         return DataLoader(self.trainset, batch_size=self.hparams.batch_size, num_workers=self.num_workers, shuffle=True, pin_memory=pin_memory)
     def val_dataloader(self):

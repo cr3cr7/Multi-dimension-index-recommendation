@@ -422,7 +422,8 @@ class BlockDataset_V2(data.Dataset):
                 print("*"*50 + f"Load scan_conds:{save_path} from file! " + "*"*50)
                 self.testScanConds = pickle.load(open(save_path, "rb"))[:100]
                 # TODO: Deprecated
-                self.testQuery = pickle.load(open(f"./datasets/Queries_3Cols.pkl", "rb"))[:100]
+                self.testQuery = None
+                # self.testQuery = pickle.load(open(f"./datasets/Queries_3Cols.pkl", "rb"))[:100]
         
         # Start Sample Data From Query
         print("Start Sample Data From Query ...")
@@ -596,7 +597,13 @@ class BlockDataset_V2(data.Dataset):
             query_sample_data = self.Sample(self.table, Queries[0])
             new_discretized_df.append(query_sample_data.sample(n= target if target < query_sample_data.shape[0] else query_sample_data.shape[0]))
         return torch.tensor(new_discretized_df.values, dtype=torch.float32) 
-    
+
+from enum import Enum
+class EvalType(Enum):
+    Sim = 1
+    Real = 2
+    Unkown = 3
+
 class BlockDataset_Eval(data.Dataset):
     """Wrap a Block and yield one Row as Pytorch Dataset element."""
     
@@ -619,6 +626,8 @@ class BlockDataset_Eval(data.Dataset):
         
         self.testQuery = testQuery
         self.testScanConds = testScanConds
+
+        self.eval_type = EvalType.Unkown
         
     def __getitem__(self, idx):
         return self.orig_tuples[idx], idx
@@ -626,6 +635,11 @@ class BlockDataset_Eval(data.Dataset):
     def __len__(self):
         return len(self.orig_tuples)    
     
+    def SetEvalType(self, eval_type: EvalType):
+        self.eval_type = eval_type
+
+    def GetEvalType(self):
+        return self.eval_type
 
 class BlockDataset_Shadow(BlockDataset_V2):
     """Wrap a Block and yield one Row as Pytorch Dataset element."""

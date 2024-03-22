@@ -18,15 +18,15 @@ def load_callbacks(logger):
     #     patience=10,
     #     min_delta=0.001
     # ))
-    if logger:
-        callbacks.append(plc.ModelCheckpoint(
-            dirpath= logger.experiment.dir,
-            monitor='val_scan',
-            filename='best-{epoch:02d}-{val_scan:.3f}',
-            save_top_k=1,
-            mode='min',
-            save_last=False
-        ))
+    # if logger:
+    #     callbacks.append(plc.ModelCheckpoint(
+    #         dirpath= logger.experiment.dir,
+    #         monitor='val_scan',
+    #         filename='best-{epoch:02d}-{val_scan:.3f}',
+    #         save_top_k=1,
+    #         mode='min',
+    #         save_last=False
+    #     ))
 
     if args.lr_scheduler:
         callbacks.append(plc.LearningRateMonitor(
@@ -58,8 +58,8 @@ def main(args):
 
     # trainer = Trainer.from_argparse_args(args, accelerator='gpu', gpus=1, log_every_n_steps=1)
     # trainer = Trainer.from_argparse_args(args, accelerator='gpu', devices=[2], fast_dev_run=True)
-    trainer = Trainer.from_argparse_args(args, accelerator='gpu', 
-                                         devices=[3],
+    trainer = Trainer.from_argparse_args(args, accelerator='cpu', 
+                                        #  devices=[3],
                                          accumulate_grad_batches=100,
                                        #  strategy=,
                                          log_every_n_steps=1, 
@@ -70,7 +70,7 @@ def main(args):
                                          # For assert in Validation
                                          num_sanity_val_steps=0,
                                          # Reload Dataloader
-                                         reload_dataloaders_every_n_epochs=1,
+                                         reload_dataloaders_every_n_epochs=5,
                                         #  track_grad_norm=2,
                                         #  fast_dev_run=True
                                          )

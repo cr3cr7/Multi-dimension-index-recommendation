@@ -579,7 +579,7 @@ class RankingModel_v2(nn.Module):
         self.if_pretraining = if_pretraining
         self.feature_stats = feature_stats
 
-        self.normalization = True
+        self.normalization = False
         if self.normalization:
             self.mins, self.maxs = self.feature_stats
         
